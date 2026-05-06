@@ -165,6 +165,14 @@ class SilentSpeech:
         except Exception:
             return video_path
 
+    async def _type_in_order(self, text, sequence_num):
+        async with self.typing_condition:
+            while self.next_sequence_to_type != sequence_num:
+                await self.typing_condition.wait()
+            self.kbd_controller.type(text)
+            self.next_sequence_to_type += 1
+            self.typing_condition.notify_all()
+
     async def correct_output_async(self, output, nbest, sequence_num):
         try:
             candidates = "\n".join(
@@ -183,20 +191,22 @@ class SilentSpeech:
                     {
                         'role': 'system',
                         'content': (
-                            "You are correcting output from a lip-reading AI. "
-                            "You receive the top-5 beam search candidates ranked by score (less negative = more likely). "
-                            "The top-ranked candidate is often WRONG — the real utterance may be in a lower-ranked candidate or a blend of several. "
-                            "Pick the most contextually plausible interpretation from the candidates, then fix it.\n\n"
-                            "Error patterns to fix:\n"
-                            "1. PHONEME CONFUSIONS: b/p/m look identical on lips, as do f/v, th/s/z, w/r/l. "
-                            "Swap these when a word looks wrong.\n"
-                            "2. OUT-OF-VOCABULARY WORDS: rare words get replaced by visually similar common words. "
-                            "Use context to restore the intended word.\n"
-                            "3. CLIPPED START: the first syllable is often missing. If a candidate looks like the tail "
-                            "of a phrase, reconstruct it from conversation history.\n\n"
-                            "Rules: stay close to what was actually said — do not invent words. "
-                            "Correct capitalisation. End with '.', '?', or '!'. "
-                            "Return 'list_of_changes' (brief) and 'corrected_text'."
+                            "You are a post-processor for a lip-reading AI (VSR). "
+                            "You receive the top-5 beam search candidates ranked by acoustic score (less negative = more likely). "
+                            "The top-ranked candidate is often wrong — check all 5 before deciding.\n\n"
+                            "YOUR ONLY JOB:\n"
+                            "1. Pick the single most plausible candidate (or blend words from two that are clearly the same phrase).\n"
+                            "2. Fix capitalisation and add terminal punctuation (. ? !).\n"
+                            "3. Fix obvious phoneme swaps ONLY within the words already present: "
+                            "b<->p<->m (bilabials), f<->v, th<->s<->z, w<->r.\n\n"
+                            "HARD RULES — violating these is wrong:\n"
+                            "- NEVER add a word that does not appear in any candidate. "
+                            "If 'Hello' is not in any candidate, do not write 'Hello'.\n"
+                            "- NEVER remove content words. You may only fix spelling/capitalisation.\n"
+                            "- If all candidates look like noise (single letters, random syllables), "
+                            "output the Rank 1 candidate exactly, lowercased with a period.\n\n"
+                            "Return 'list_of_changes' (one short phrase, e.g. 'capitalised + added period') "
+                            "and 'corrected_text'."
                         )
                     },
                     *self.conversation_history,
@@ -254,12 +264,22 @@ class SilentSpeech:
             return fallback
 
     def perform_inference(self, video_path):
-        # Apply current bandit config before running beam search
         transcript, nbest = self.vsr_model(video_path)
         print(f"\n\033[48;5;21m\033[97m\033[1m RAW OUTPUT \033[0m: {transcript}\n")
 
         sequence_num = self.current_sequence
         self.current_sequence += 1
+
+        # Skip LLM for very low-confidence output (score < -20 means the model
+        # is extremely uncertain — LLM correction would just hallucinate on noise)
+        top_score = nbest[0][1] if nbest else -999
+        if top_score < -20:
+            self._write_log(f"[SKIPPED LLM — low confidence score {top_score:.1f}]\n\n")
+            fallback = transcript.capitalize() + '. '
+            asyncio.run_coroutine_threadsafe(
+                self._type_in_order(fallback, sequence_num), self.loop
+            )
+            return {"output": transcript, "video_path": video_path}
 
         # Log VSR stage immediately — before waiting on LLM
         dc = self.vsr_model.decode_config if self.vsr_model else {}
@@ -355,7 +375,7 @@ class SilentSpeech:
                             out.release()
                             out = None
 
-                        if frame_count >= self.fps * 1 and output_path is not None:
+                        if frame_count >= self.fps * 2 and output_path is not None:
                             # Mux captured audio into the video file for AV fusion
                             if av_mode:
                                 wav_path = output_path.replace('.mp4', '.wav')
