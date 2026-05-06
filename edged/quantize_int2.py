@@ -124,10 +124,15 @@ def load_full_model(model_path, model_conf):
 
 def build_int2_state(model):
     """
-    Quantize every eligible Linear weight in encoder + ctc to INT2.
-    Decoder is dropped. Non-linear params (biases, norms, conv) stay FP32.
+    Quantize ALL weight tensors (Linear AND Conv) in encoder + ctc to INT2.
+    Decoder is dropped. Biases/norms/embeddings stored as FP16 (not FP32).
+
+    Three-tier strategy:
+      - Weight tensors (ndim >= 2, numel > 512) -> INT2 packed
+      - Bias / norm / small tensors               -> FP16
+      - Decoder keys                              -> dropped entirely
     """
-    stats = {'int2': 0, 'fp32_kept': 0, 'decoder_dropped': 0}
+    stats = {'int2': 0, 'fp16_kept': 0, 'decoder_dropped': 0}
     int2_state = {}
 
     for key, tensor in model.state_dict().items():
@@ -135,16 +140,22 @@ def build_int2_state(model):
             stats['decoder_dropped'] += 1
             continue
 
-        # Quantize only weight matrices large enough to benefit
-        if key.endswith('.weight') and tensor.ndim == 2 and tensor.numel() > 512:
-            packed, scale, shape = quantize_tensor_int2(tensor)
+        # Quantize ALL weight tensors large enough to benefit
+        # (removes ndim==2 restriction — catches Conv2d/Conv3d too)
+        if key.endswith('.weight') and tensor.ndim >= 2 and tensor.numel() > 512:
+            flat_tensor = tensor.reshape(tensor.shape[0], -1) if tensor.ndim > 2 else tensor
+            packed, scale, shape = quantize_tensor_int2(flat_tensor)
             int2_state[key + '.__int2_packed__'] = packed
-            int2_state[key + '.__int2_scale__']  = torch.tensor(scale)
-            int2_state[key + '.__int2_shape__']  = torch.tensor(list(shape))
+            int2_state[key + '.__int2_scale__']  = torch.tensor(float(scale), dtype=torch.float32)
+            int2_state[key + '.__int2_shape__']  = torch.tensor(list(tensor.shape), dtype=torch.int32)
             stats['int2'] += 1
         else:
-            int2_state[key] = tensor
-            stats['fp32_kept'] += 1
+            # Store biases, norms, embeddings as FP16 to halve their footprint
+            if tensor.is_floating_point():
+                int2_state[key] = tensor.half()
+            else:
+                int2_state[key] = tensor
+            stats['fp16_kept'] += 1
 
     return int2_state, stats
 
@@ -157,17 +168,22 @@ def reconstruct_state(int2_state: dict) -> dict:
     for key in int2_state:
         if key.endswith('.__int2_packed__'):
             base = key[: -len('.__int2_packed__')]
-            packed = int2_state[base + '.__int2_packed__']
-            scale  = float(int2_state[base + '.__int2_scale__'])
-            shape  = torch.Size(int2_state[base + '.__int2_shape__'].tolist())
-            state[base] = dequantize_tensor_int2(packed, scale, shape)
+            packed    = int2_state[base + '.__int2_packed__']
+            scale     = float(int2_state[base + '.__int2_scale__'])
+            orig_shape = torch.Size(int2_state[base + '.__int2_shape__'].tolist())
+            # Dequantize uses flattened 2D shape; reshape back to original
+            flat_shape = torch.Size([orig_shape[0], -1]) if len(orig_shape) > 2 else orig_shape
+            flat_t = dequantize_tensor_int2(packed, scale, torch.Size([orig_shape[0], packed.numel() * 4 // orig_shape[0]]))
+            state[base] = flat_t.reshape(orig_shape)
             processed |= {
                 base + '.__int2_packed__',
                 base + '.__int2_scale__',
                 base + '.__int2_shape__',
             }
         elif key not in processed:
-            state[key] = int2_state[key]
+            # FP16 -> FP32 for model loading
+            t = int2_state[key]
+            state[key] = t.float() if t.is_floating_point() and t.dtype == torch.float16 else t
 
     return state
 

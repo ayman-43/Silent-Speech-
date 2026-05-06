@@ -5,7 +5,7 @@ Halves memory footprint on GPU and gets free 2x speedup on any GPU
 with Tensor Cores (RTX 20xx and later, all mobile GPUs since 2019).
 
 Expected results:
-  Size : 956 MB → ~478 MB  (2x reduction)
+  Size : 956 MB -> ~478 MB  (2x reduction)
   Speed: 1.5–2x faster on GPU (Tensor Core FP16 matmuls)
   WER  : identical to FP32 (lossless on GPU)
 
@@ -37,11 +37,11 @@ def main():
         for k, v in state.items()
     }
 
-    print(f'[edged] Saving → {args.out}')
+    print(f'[edged] Saving -> {args.out}')
     torch.save(fp16_state, args.out)
 
     out_mb = os.path.getsize(args.out) / 1e6
-    print(f'[edged] Done.  {orig_mb:.0f} MB → {out_mb:.0f} MB')
+    print(f'[edged] Done.  {orig_mb:.0f} MB -> {out_mb:.0f} MB')
     print('[edged] Load with: model.half().to("cuda") or model.load_state_dict(...); model.half()')
 
 

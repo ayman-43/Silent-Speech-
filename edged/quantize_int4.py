@@ -4,7 +4,7 @@ INT4 weight-only quantization — encoder + CTC head only (decoder dropped).
 Strategy:
   - Drop the 64.5M-param attention decoder entirely (not needed for CTC greedy)
   - Quantize remaining Linear weights to 4-bit symmetric range [-8, 7]
-  - Pack two INT4 values per byte → true 4-bit storage
+  - Pack two INT4 values per byte -> true 4-bit storage
   - Dequantize to FP32 at runtime (memory bandwidth saved, not compute)
 
 Expected results:
@@ -61,7 +61,7 @@ def dequantize_tensor_int4(packed: torch.Tensor, scale: float, orig_shape: torch
     arr = packed.numpy().astype(np.uint8)
     hi = ((arr >> 4) & 0x0F).astype(np.int8)
     lo = (arr & 0x0F).astype(np.int8)
-    # Sign extend from 4-bit: values 8–15 → -8 to -1
+    # Sign extend from 4-bit: values 8–15 -> -8 to -1
     hi = np.where(hi >= 8, hi - 16, hi)
     lo = np.where(lo >= 8, lo - 16, lo)
     flat = np.empty(len(hi) * 2, dtype=np.int8)
@@ -173,7 +173,7 @@ def main():
 
     torch.save(int4_state, args.out)
     out_mb = os.path.getsize(args.out) / 1e6
-    print(f'[int4] Done.  {orig_mb:.0f} MB → {out_mb:.0f} MB  ({orig_mb/out_mb:.1f}x compression)')
+    print(f'[int4] Done.  {orig_mb:.0f} MB -> {out_mb:.0f} MB  ({orig_mb/out_mb:.1f}x compression)')
     print(f'[int4] Load with: reconstruct_state() from quantize_int4.py')
 
 
