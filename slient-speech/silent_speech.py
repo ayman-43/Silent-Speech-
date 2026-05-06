@@ -6,6 +6,7 @@ import os
 import asyncio
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from ollama import AsyncClient
 from pydantic import BaseModel
 from pynput import keyboard
@@ -48,6 +49,15 @@ class SilentSpeech:
         self.conversation_history = []
         self._init_async_resources()
 
+        self.log_path = "debug_log.txt"
+        self.log_lock = threading.Lock()
+        # Write session header
+        self._write_log(
+            f"\n{'='*80}\n"
+            f"  SESSION START — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"{'='*80}\n"
+        )
+
         self.hotkey = keyboard.GlobalHotKeys({
             '<alt>': self.toggle_recording
         })
@@ -67,11 +77,16 @@ class SilentSpeech:
         self.typing_lock = asyncio.Lock()
         self.typing_condition = asyncio.Condition(self.typing_lock)
 
+    def _write_log(self, text):
+        with self.log_lock:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(text)
+
     def toggle_recording(self):
         with self.recording_lock:
             self.recording = not self.recording
 
-    async def correct_output_async(self, output, sequence_num):
+    async def correct_output_async(self, output, nbest, sequence_num):
         self.conversation_history.append({
             'role': 'user',
             'content': f"Transcription:\n\n{output}"
@@ -121,6 +136,28 @@ class SilentSpeech:
             chat_output.corrected_text += '.'
         chat_output.corrected_text += ' '
 
+        # Log LLM stage
+        dc = self.vsr_model.decode_config if self.vsr_model else {}
+        beam_lines = "\n".join(
+            f"    Rank {i+1}  (score: {score:>8.2f})  {text}"
+            for i, (text, score) in enumerate(nbest)
+        )
+        self._write_log(
+            f"\n{'='*80}\n"
+            f"  UTTERANCE #{sequence_num + 1} — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"{'='*80}\n\n"
+            f"[LRS3 VSR — BEAM SEARCH + LANGUAGE MODEL]\n"
+            f"  lm_weight: {dc.get('lm_weight', '?')}   "
+            f"ctc_weight: {dc.get('ctc_weight', '?')}   "
+            f"penalty: {dc.get('penalty', '?')}   "
+            f"beam_size: {dc.get('beam_size', '?')}\n\n"
+            f"{beam_lines}\n\n"
+            f"[LLM CORRECTION — qwen3:4b]\n"
+            f"  Input  : {output}\n"
+            f"  Changes: {chat_output.list_of_changes}\n"
+            f"  Output : {chat_output.corrected_text.strip()}\n\n"
+        )
+
         async with self.typing_condition:
             while self.next_sequence_to_type != sequence_num:
                 await self.typing_condition.wait()
@@ -131,18 +168,18 @@ class SilentSpeech:
         return chat_output.corrected_text
 
     def perform_inference(self, video_path):
-        output = self.vsr_model(video_path)
-        print(f"\n\033[48;5;21m\033[97m\033[1m RAW OUTPUT \033[0m: {output}\n")
+        transcript, nbest = self.vsr_model(video_path)
+        print(f"\n\033[48;5;21m\033[97m\033[1m RAW OUTPUT \033[0m: {transcript}\n")
 
         sequence_num = self.current_sequence
         self.current_sequence += 1
 
         asyncio.run_coroutine_threadsafe(
-            self.correct_output_async(output, sequence_num),
+            self.correct_output_async(transcript, nbest, sequence_num),
             self.loop
         )
 
-        return {"output": output, "video_path": video_path}
+        return {"output": transcript, "video_path": video_path}
 
     def start_webcam(self):
         cap = cv2.VideoCapture(0)

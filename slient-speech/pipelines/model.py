@@ -46,17 +46,21 @@ class AVSR(torch.nn.Module):
         self.beam_search = get_beam_search_decoder(self.model, self.token_list, rnnlm, rnnlm_conf, penalty, ctc_weight, lm_weight, beam_size)
         self.beam_search.to(device=self.device).eval()
         
-    def infer(self, data):
+    def infer(self, data, nbest_count=5):
         with torch.no_grad():
             if isinstance(data, tuple):
                 enc_feats = self.model.encode(data[0].to(self.device), data[1].to(self.device))
             else:
                 enc_feats = self.model.encode(data.to(self.device))
-            nbest_hyps = self.beam_search(enc_feats)
-            nbest_hyps = [h.asdict() for h in nbest_hyps[: min(len(nbest_hyps), 1)]]
-            transcription = add_results_to_json(nbest_hyps, self.token_list)
-            transcription = transcription.replace("▁", " ").strip()
-        return transcription.replace("<eos>", "")
+            raw_hyps = self.beam_search(enc_feats)
+            n = min(len(raw_hyps), nbest_count)
+            nbest = []
+            for hyp in raw_hyps[:n]:
+                text = add_results_to_json([hyp.asdict()], self.token_list)
+                text = text.replace("▁", " ").strip().replace("<eos>", "")
+                nbest.append((text, float(hyp.score)))
+        top = nbest[0][0] if nbest else ""
+        return top, nbest
 
 
 def get_beam_search_decoder(model, token_list, rnnlm=None, rnnlm_conf=None, penalty=0, ctc_weight=0.1, lm_weight=0., beam_size=40):

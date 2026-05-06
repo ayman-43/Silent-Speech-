@@ -39,11 +39,17 @@ class InferencePipeline(torch.nn.Module):
 
         self.dataloader = AVSRDataLoader(modality, speed_rate=input_v_fps/model_v_fps, detector=detector)
         self.model = AVSR(modality, model_path, model_conf, rnnlm, rnnlm_conf, penalty, ctc_weight, lm_weight, beam_size, device)
+        self.decode_config = {
+            "lm_weight": lm_weight,
+            "ctc_weight": ctc_weight,
+            "penalty": penalty,
+            "beam_size": beam_size,
+        }
         if face_track and self.modality in ["video", "audiovisual"]:
             if detector == "mediapipe":
                 from pipelines.detectors.mediapipe.detector import LandmarksDetector
                 self.landmarks_detector = LandmarksDetector()
-            if detector == "retinaface":
+            elif detector == "retinaface":
                 from pipelines.detectors.retinaface.detector import LandmarksDetector
                 self.landmarks_detector = LandmarksDetector(device="cuda:0")
         else:
@@ -65,5 +71,5 @@ class InferencePipeline(torch.nn.Module):
         assert os.path.isfile(data_filename), f"data_filename: {data_filename} does not exist."
         landmarks = self.process_landmarks(data_filename, landmarks_filename)
         data = self.dataloader.load_data(data_filename, landmarks)
-        transcript = self.model.infer(data)
-        return transcript
+        transcript, nbest = self.model.infer(data)
+        return transcript, nbest
