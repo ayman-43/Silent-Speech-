@@ -1,161 +1,270 @@
+'use client';
+import { useEffect, useRef, useState } from 'react';
+import gsap from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+
+if (typeof window !== 'undefined') {
+  gsap.registerPlugin(ScrollTrigger);
+}
+
 const USE_CASES = [
   {
-    id: 'access',
-    cat: 'Accessibility',
-    title: 'A voice for those without one.',
-    body: 'For people living with ALS, vocal-cord paralysis, post-laryngectomy recovery, or speech-affecting conditions — speak by mouthing.',
-    metric: '70M+',
-    metricLabel: 'people with speech disorders worldwide',
+    id: 'security',
+    cat: 'Active Surveillance',
+    title: 'Security & Surveillance',
+    body: 'Extract speech from silent CCTV footage for investigation purposes. Our model processes raw pixels to reconstruct dialogue without acoustic data.',
+    color: '#4285F4',
+    size: 'wide', // 2x1
+    viz: 'radar'
   },
   {
-    id: 'medical',
-    cat: 'Recovery',
-    title: 'Speak through the silence.',
-    body: 'Surgical recovery, intubation, laryngitis. SilentSpeak gives a temporary voice when the throat needs to rest.',
-    metric: '14 days',
-    metricLabel: 'avg. post-op vocal rest',
+    id: 'forensic',
+    cat: 'Digital Evidence',
+    title: 'Forensic Analysis',
+    body: 'Analyse video evidence and reconstruct conversations from high-definition footage.',
+    color: '#F4B400',
+    size: 'small', // 1x1
+    viz: 'magnifier'
   },
   {
-    id: 'public',
-    cat: 'Discreet comms',
-    title: 'Quiet by design.',
-    body: 'Libraries, hospitals, classrooms, late-night calls. Communicate without disturbing anyone in the room.',
-    metric: '0 dB',
-    metricLabel: 'acoustic footprint',
+    id: 'archives',
+    cat: 'Historical Recovery',
+    title: 'Historical Archives',
+    body: 'Recover dialogue from silent films and historical footage without audio.',
+    color: '#A142F4',
+    size: 'small', // 1x1
+    viz: 'reel'
   },
   {
-    id: 'tactical',
-    cat: 'Defense',
-    title: 'Silent, encrypted, on-mission.',
-    body: 'Covert and noise-sensitive operations. No audio signature. No spectrum to jam. Visual-only, end-to-end.',
-    metric: 'air-gapped',
-    metricLabel: 'no network required',
+    id: 'accessibility',
+    cat: 'Inclusive Tech',
+    title: 'Accessibility First',
+    body: 'Providing a seamless communication layer for the deaf and hard of hearing community. Silent lip-reading turned into real-time text and synthesized voice.',
+    color: '#34A853',
+    size: 'tall', // 1x2
+    viz: 'transcript'
   },
   {
-    id: 'wear',
-    cat: 'Wearables · AR/VR',
-    title: 'The next input modality.',
-    body: 'Smart glasses, AR headsets, ambient computing. Subvocal control without microphones or controllers.',
-    metric: '<40ms',
-    metricLabel: 'end-to-end latency',
+    id: 'media',
+    cat: 'Content Restoration',
+    title: 'Media Recovery',
+    body: 'Restore content from videos with corrupted or missing audio tracks.',
+    color: '#EA4335',
+    size: 'small', // 1x1
+    viz: 'waves'
   },
   {
-    id: 'hci',
-    cat: 'Next-gen HCI',
-    title: 'Beyond keyboards.',
-    body: 'A new layer of human-computer interaction. Intent recognition without typing, tapping, or speaking aloud.',
-    metric: 'visual',
-    metricLabel: 'intent recognition',
+    id: 'monitoring',
+    cat: 'Remote Intelligence',
+    title: 'Remote Monitoring',
+    body: 'Understand conversations from visual-only feeds in noisy environments.',
+    color: '#00ACC1',
+    size: 'small', // 1x1
+    viz: 'pulse'
   },
 ];
 
-function UseCaseScene({ id }: { id: string }) {
+function MicroViz({ type, color }: { type: string; color: string }) {
+  const container = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      if (type === 'radar') {
+        gsap.to('.radar-sweep', {
+          rotate: 360,
+          duration: 4,
+          repeat: -1,
+          ease: 'none'
+        });
+        gsap.to('.radar-dot', {
+          opacity: 0,
+          duration: 1,
+          repeat: -1,
+          stagger: 0.5,
+          yoyo: true
+        });
+      } else if (type === 'transcript') {
+        gsap.to('.ts-line', {
+          y: -100,
+          duration: 10,
+          repeat: -1,
+          ease: 'none'
+        });
+      } else if (type === 'pulse') {
+        gsap.to('.pulse-ring', {
+          scale: 3,
+          opacity: 0,
+          duration: 2,
+          repeat: -1,
+          ease: 'power1.out',
+          stagger: 0.6
+        });
+      } else if (type === 'waves') {
+        gsap.to('.wave-bar', {
+          height: '80%',
+          duration: 0.4,
+          repeat: -1,
+          yoyo: true,
+          stagger: 0.05,
+          ease: 'sine.inOut'
+        });
+      }
+    }, container);
+    return () => ctx.revert();
+  }, [type]);
+
   return (
-    <div className="uc-scene">
-      <svg viewBox="0 0 200 100" preserveAspectRatio="none">
-        {id === 'access' && (
-          <g>
-            {Array.from({ length: 18 }).map((_, i) => {
-              const h = 20 + Math.abs(Math.sin(i * 0.5)) * 50;
-              return <rect key={i} x={10 + i * 10} y={50 - h / 2} width="3" height={h} fill="var(--accent)" opacity={0.3 + (i / 18) * 0.7} />;
-            })}
-            <text x="100" y="92" fontSize="6" fill="var(--fg-2)" textAnchor="middle" letterSpacing="2" fontFamily="monospace">YOUR VOICE — RESTORED</text>
-          </g>
-        )}
-        {id === 'medical' && (
-          <g>
-            <path d="M0 50 L30 50 L40 30 L50 70 L60 50 L100 50" fill="none" stroke="var(--accent)" strokeWidth="1.2" opacity="0.7" />
-            <line x1="100" y1="50" x2="200" y2="50" stroke="var(--fg-3)" strokeWidth="0.5" strokeDasharray="2 2" />
-            <text x="150" y="38" fontSize="7" fill="var(--accent)" textAnchor="middle" fontFamily="monospace" letterSpacing="1">&quot;thank you&quot;</text>
-          </g>
-        )}
-        {id === 'public' && (
-          <g>
-            <circle cx="60" cy="50" r="10" fill="none" stroke="var(--fg-2)" strokeWidth="0.6" opacity="0.5" />
-            <circle cx="60" cy="50" r="20" fill="none" stroke="var(--fg-2)" strokeWidth="0.5" opacity="0.3" />
-            <circle cx="60" cy="50" r="30" fill="none" stroke="var(--fg-2)" strokeWidth="0.4" opacity="0.15" />
-            <line x1="40" y1="30" x2="80" y2="70" stroke="#ff6b6b" strokeWidth="1.5" />
-            <text x="140" y="48" fontSize="7" fill="var(--accent)" textAnchor="middle" fontFamily="monospace" letterSpacing="1.5">SILENT</text>
-            <text x="140" y="60" fontSize="7" fill="var(--accent)" textAnchor="middle" fontFamily="monospace" letterSpacing="1.5">UNDERSTOOD</text>
-          </g>
-        )}
-        {id === 'tactical' && (
-          <g>
-            {Array.from({ length: 10 }).map((_, i) => (
-              <line key={`v${i}`} x1={i * 20} y1="0" x2={i * 20} y2="100" stroke="var(--fg-3)" strokeWidth="0.3" opacity="0.4" />
-            ))}
-            {Array.from({ length: 5 }).map((_, i) => (
-              <line key={`h${i}`} x1="0" y1={i * 25} x2="200" y2={i * 25} stroke="var(--fg-3)" strokeWidth="0.3" opacity="0.4" />
-            ))}
-            <circle cx="60" cy="60" r="3" fill="var(--accent)" />
-            <circle cx="60" cy="60" r="8" fill="none" stroke="var(--accent)" strokeWidth="0.6" opacity="0.6" />
-            <line x1="60" y1="60" x2="140" y2="40" stroke="var(--accent)" strokeWidth="0.8" strokeDasharray="3 2" />
-            <circle cx="140" cy="40" r="2" fill="none" stroke="var(--accent)" strokeWidth="1" />
-            <text x="148" y="42" fontSize="6" fill="var(--accent)" fontFamily="monospace" letterSpacing="1">WP-07</text>
-          </g>
-        )}
-        {id === 'wear' && (
-          <g>
-            <circle cx="65" cy="50" r="22" fill="none" stroke="var(--fg-2)" strokeWidth="0.8" />
-            <circle cx="135" cy="50" r="22" fill="none" stroke="var(--fg-2)" strokeWidth="0.8" />
-            <line x1="87" y1="50" x2="113" y2="50" stroke="var(--fg-2)" strokeWidth="0.8" />
-            <line x1="43" y1="50" x2="20" y2="46" stroke="var(--fg-2)" strokeWidth="0.8" />
-            <line x1="157" y1="50" x2="180" y2="46" stroke="var(--fg-2)" strokeWidth="0.8" />
-            <circle cx="65" cy="50" r="2" fill="var(--accent)" />
-            <circle cx="135" cy="50" r="2" fill="var(--accent)" />
-            <text x="100" y="92" fontSize="6" fill="var(--fg-2)" textAnchor="middle" letterSpacing="2" fontFamily="monospace">SUBVOCAL · AR</text>
-          </g>
-        )}
-        {id === 'hci' && (
-          <g>
-            {Array.from({ length: 10 }).map((_, i) => (
-              <rect key={`k${i}`} x={5 + i * 9} y="65" width="7" height="7" rx="1" fill="none" stroke="var(--fg-3)" strokeWidth="0.5" opacity="0.4" />
-            ))}
-            <line x1="50" y1="55" x2="150" y2="30" stroke="var(--accent)" strokeWidth="0.6" strokeDasharray="2 2" />
-            <text x="150" y="22" fontSize="7" fill="var(--accent)" fontFamily="monospace" letterSpacing="1">intent</text>
-            <text x="100" y="92" fontSize="6" fill="var(--fg-3)" textAnchor="middle" letterSpacing="2" fontFamily="monospace">KEYBOARD → INTENT</text>
-          </g>
-        )}
-      </svg>
+    <div ref={container} style={{ width: '100%', height: '100%', position: 'relative', overflow: 'hidden' }}>
+      {type === 'radar' && (
+        <div style={{ position: 'absolute', inset: '20px', borderRadius: '50%', border: `1px solid ${color}20` }}>
+          <div className="radar-sweep" style={{ position: 'absolute', inset: 0, background: `conic-gradient(from 0deg, ${color}40, transparent 90deg)`, borderRadius: '50%' }} />
+          <div className="radar-dot" style={{ position: 'absolute', top: '30%', left: '40%', width: '4px', height: '4px', background: color, borderRadius: '50%', boxShadow: `0 0 10px ${color}` }} />
+          <div className="radar-dot" style={{ position: 'absolute', top: '60%', left: '70%', width: '4px', height: '4px', background: color, borderRadius: '50%', boxShadow: `0 0 10px ${color}` }} />
+        </div>
+      )}
+      {type === 'transcript' && (
+        <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="ts-line" style={{ height: '4px', background: i % 3 === 0 ? color : 'var(--fg-4)', width: `${40 + Math.random() * 50}%`, borderRadius: '2px', opacity: 0.3 }} />
+          ))}
+        </div>
+      )}
+      {type === 'pulse' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyCenter: 'center', height: '100%', width: '100%', position: 'relative' }}>
+          <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: color, borderRadius: '50%' }} />
+          <div className="pulse-ring" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: '20px', height: '20px', border: `1px solid ${color}`, borderRadius: '50%' }} />
+          <div className="pulse-ring" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: '20px', height: '20px', border: `1px solid ${color}`, borderRadius: '50%' }} />
+        </div>
+      )}
+      {type === 'waves' && (
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '3px', padding: '20px', height: '100%' }}>
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="wave-bar" style={{ flex: 1, background: color, height: '20%', borderRadius: '1px', opacity: 0.4 }} />
+          ))}
+        </div>
+      )}
+      {type === 'reel' && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+           <div style={{ width: '40px', height: '40px', border: `2px dashed ${color}`, borderRadius: '50%', animation: 'spin 10s linear infinite' }} />
+        </div>
+      )}
+      {type === 'magnifier' && (
+        <div style={{ padding: '15px' }}>
+          <div style={{ width: '100%', height: '100%', border: `1px solid ${color}30`, borderRadius: '4px', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: '20%', left: '20%', width: '30px', height: '30px', border: `1px solid ${color}`, borderRadius: '50%', background: `${color}10` }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 export default function UseCases() {
+  const sectionRef = useRef<HTMLElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const cardsRef = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const ctx = gsap.context(() => {
+      gsap.from(headerRef.current, {
+        y: 40, opacity: 0, duration: 1, ease: 'power3.out',
+        scrollTrigger: { trigger: headerRef.current, start: 'top 85%' }
+      });
+
+      cardsRef.current.forEach((card, i) => {
+        if (!card) return;
+        gsap.from(card, {
+          scale: 0.9, opacity: 0, duration: 0.8, delay: i * 0.05, ease: 'power2.out',
+          scrollTrigger: { trigger: card, start: 'top 90%' }
+        });
+      });
+    }, sectionRef);
+    return () => ctx.revert();
+  }, []);
+
   return (
-    <section className="usecases" id="use-cases">
-      <div className="sh">
-        <div className="sh-eyebrow">
-          <span className="sh-eyebrow-line" />
-          <span>USE CASES</span>
+    <section ref={sectionRef} className="usecases" id="use-cases" style={{ background: 'var(--bg-0)', padding: '160px var(--pad-x)', position: 'relative' }}>
+      <div ref={headerRef} style={{ textAlign: 'center', marginBottom: '100px' }}>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '11px', color: 'var(--accent)', letterSpacing: '0.2em', textTransform: 'uppercase', marginBottom: '24px' }}>
+          Active Monitoring
         </div>
-        <h2 className="sh-title">Six places<br /><em>silence becomes language.</em></h2>
-        <p className="sh-sub">From accessibility to defense — the same model, the same quietness, the same on-device guarantee.</p>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 8vw, 64px)', fontWeight: 500, color: 'var(--fg-0)', marginBottom: '24px', lineHeight: 1.1, letterSpacing: '-0.02em' }}>
+          Built for every <em style={{ color: 'var(--accent)', fontWeight: 400 }}>possibility.</em>
+        </h2>
       </div>
 
-      <div className="uc-grid">
+      <div className="uc-bento" style={{ 
+        display: 'grid', 
+        gridTemplateColumns: 'repeat(4, 1fr)', 
+        gridAutoRows: 'minmax(280px, auto)',
+        gap: '16px',
+        maxWidth: '1400px',
+        margin: '0 auto'
+      }}>
         {USE_CASES.map((c, i) => (
-          <article key={c.id} className="uc-card" style={{ ['--i' as string]: i }}>
-            <div className="uc-card-frame">
-              <div className="uc-corner uc-tl" />
-              <div className="uc-corner uc-tr" />
-              <div className="uc-corner uc-bl" />
-              <div className="uc-corner uc-br" />
-              <div className="uc-cat">
-                <span className="uc-cat-num">0{i + 1}</span>
-                <span className="uc-cat-text">{c.cat}</span>
-              </div>
-              <UseCaseScene id={c.id} />
-              <h3 className="uc-title">{c.title}</h3>
-              <p className="uc-body">{c.body}</p>
-              <div className="uc-metric">
-                <span className="uc-metric-num">{c.metric}</span>
-                <span className="uc-metric-label">{c.metricLabel}</span>
-              </div>
+          <article 
+            key={c.id} 
+            ref={el => { cardsRef.current[i] = el; }}
+            style={{
+              gridColumn: c.size === 'wide' ? 'span 2' : 'span 1',
+              gridRow: c.size === 'tall' ? 'span 2' : 'span 1',
+              background: 'linear-gradient(145deg, rgba(25, 25, 35, 0.4), rgba(10, 10, 15, 0.6))',
+              border: '1px solid rgba(255, 255, 255, 0.05)',
+              borderRadius: '24px',
+              padding: '32px',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              transition: 'all 0.5s cubic-bezier(0.23, 1, 0.32, 1)',
+              position: 'relative',
+              overflow: 'hidden',
+              cursor: 'default'
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = `${c.color}60`;
+              e.currentTarget.style.background = 'linear-gradient(145deg, rgba(35, 35, 55, 0.6), rgba(10, 10, 15, 0.8))';
+              e.currentTarget.style.transform = 'scale(1.01) translateY(-4px)';
+              e.currentTarget.style.boxShadow = `0 30px 60px -20px ${c.color}20`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.05)';
+              e.currentTarget.style.background = 'linear-gradient(145deg, rgba(25, 25, 35, 0.4), rgba(10, 10, 15, 0.6))';
+              e.currentTarget.style.transform = 'scale(1) translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <div style={{ position: 'absolute', top: 0, right: 0, width: '150px', height: '150px', opacity: 0.6 }}>
+              <MicroViz type={c.viz} color={c.color} />
             </div>
+
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '10px', color: c.color, letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: '12px' }}>
+                {c.cat}
+              </div>
+              <h3 style={{ fontFamily: 'var(--font-display)', fontSize: c.size === 'wide' ? '28px' : '22px', fontWeight: 600, color: 'var(--fg-0)', marginBottom: '16px', letterSpacing: '-0.01em' }}>
+                {c.title}
+              </h3>
+            </div>
+
+            <p style={{ position: 'relative', zIndex: 1, color: 'var(--fg-2)', fontSize: '15px', lineHeight: 1.6, maxWidth: '280px' }}>
+              {c.body}
+            </p>
+
+            <div style={{ position: 'absolute', bottom: '-20px', right: '-20px', width: '100px', height: '100px', background: c.color, filter: 'blur(60px)', opacity: 0.05, pointerEvents: 'none' }} />
           </article>
         ))}
       </div>
+
+      <style jsx global>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @media (max-width: 1000px) {
+          .uc-bento { grid-template-columns: repeat(2, 1fr) !important; }
+        }
+        @media (max-width: 600px) {
+          .uc-bento { grid-template-columns: 1fr !important; }
+          .uc-bento > article { grid-column: span 1 !important; grid-row: span 1 !important; }
+        }
+      `}</style>
     </section>
   );
 }

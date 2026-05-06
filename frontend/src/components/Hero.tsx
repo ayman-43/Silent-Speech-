@@ -129,7 +129,10 @@ function WaveformViz({ phase, time }: { phase: number; time: number }) {
   );
 }
 
+import { useSession, signOut } from 'next-auth/react';
+
 export default function Hero() {
+  const { data: session } = useSession();
   const [phase, setPhase] = useState(0);
   const [time, setTime] = useState(0);
 
@@ -178,13 +181,33 @@ export default function Hero() {
           <a href="#use-cases">Use cases</a>
           <a href="#vision">Vision</a>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <a href="/login" className="btn btn-ghost" style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto' }}>
-            <span>Login</span>
-          </a>
-          <a href="/signup" className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto' }}>
-            <span>Sign Up</span>
-          </a>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {session ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 12px', background: 'rgba(255,255,255,0.05)', borderRadius: '20px', border: '1px solid var(--fg-4)' }}>
+                <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#34A853' }} />
+                <span style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--fg-1)' }}>
+                  {session.user?.name?.split(' ')[0]}
+                </span>
+              </div>
+              <button 
+                onClick={() => signOut()} 
+                className="btn btn-ghost" 
+                style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto', border: 'none' }}
+              >
+                <span>Sign Out</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <a href="/login" className="btn btn-ghost" style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto' }}>
+                <span>Login</span>
+              </a>
+              <a href="/signup" className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto' }}>
+                <span>Sign Up</span>
+              </a>
+            </>
+          )}
         </div>
       </nav>
 
