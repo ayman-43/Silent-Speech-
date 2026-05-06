@@ -205,7 +205,7 @@ def main():
     int2_state, stats = build_int2_state(model)
 
     print(f'[int2]   Linear layers quantized (INT2) : {stats["int2"]}')
-    print(f'[int2]   FP32 params kept               : {stats["fp32_kept"]}')
+    print(f'[int2]   FP16 params kept               : {stats["fp16_kept"]}')
     print(f'[int2]   Decoder keys dropped            : {stats["decoder_dropped"]}')
 
     torch.save(int2_state, args.out)
