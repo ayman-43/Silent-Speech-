@@ -1,27 +1,69 @@
 'use client';
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import LiquidEther from './LiquidEther';
 import Shuffle from './Shuffle';
 
 const BARS = 64;
 
 function WaveformViz({ phase, time }: { phase: number; time: number }) {
-  return (
-    <div className="wf">
-      <div className="wf-frame">
-        <div className="wf-corner wf-corner-tl" />
-        <div className="wf-corner wf-corner-tr" />
-        <div className="wf-corner wf-corner-bl" />
-        <div className="wf-corner wf-corner-br" />
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [rotate, setRotate] = useState({ x: 0, y: 0 });
+  const [isHovering, setIsHovering] = useState(false);
 
-        <div className="wf-stage">
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const centerX = rect.width / 2;
+    const centerY = rect.height / 2;
+    
+    // Calculate rotation, max 15 degrees
+    const rotateX = ((y - centerY) / centerY) * -15;
+    const rotateY = ((x - centerX) / centerX) * 15;
+    
+    setRotate({ x: rotateX, y: rotateY });
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovering(false);
+    setRotate({ x: 0, y: 0 });
+  };
+
+  const handleMouseEnter = () => {
+    setIsHovering(true);
+  };
+
+  return (
+    <div 
+      className="wf"
+      ref={containerRef}
+      onMouseMove={handleMouseMove}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      style={{ perspective: "1000px" }}
+    >
+      <div 
+        className="wf-frame"
+        style={{
+          transform: `rotateX(${rotate.x}deg) rotateY(${rotate.y}deg)`,
+          transition: isHovering ? "none" : "transform 0.5s ease",
+          transformStyle: "preserve-3d"
+        }}
+      >
+        <div className="wf-corner wf-corner-tl" style={{ transform: isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+        <div className="wf-corner wf-corner-tr" style={{ transform: isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+        <div className="wf-corner wf-corner-bl" style={{ transform: isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+        <div className="wf-corner wf-corner-br" style={{ transform: isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+
+        <div className="wf-stage" style={{ transform: isHovering ? "translateZ(60px)" : "translateZ(0)", transition: "transform 0.3s ease", transformStyle: "preserve-3d" }}>
           {/* Phase 0: sound wave */}
-          <div className={`wf-layer wf-wave${phase === 0 ? ' on' : ''}`}>
-            <div className="wf-label">
+          <div className={`wf-layer wf-wave${phase === 0 ? ' on' : ''}`} style={{ transformStyle: "preserve-3d" }}>
+            <div className="wf-label" style={{ transform: isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-label-dot" />
               <span>AUDIO INPUT — TRADITIONAL</span>
             </div>
-            <div className="wf-bars">
+            <div className="wf-bars" style={{ transform: isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               {Array.from({ length: BARS }).map((_, i) => {
                 const amp = Math.abs(Math.sin(i * 0.4 + time * 4) * Math.cos(i * 0.13 + time * 2));
                 return (
@@ -33,7 +75,7 @@ function WaveformViz({ phase, time }: { phase: number; time: number }) {
                 );
               })}
             </div>
-            <div className="wf-foot">
+            <div className="wf-foot" style={{ transform: isHovering ? "translateZ(10px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-tick">−2.4s</span>
               <span className="wf-tick">−1.2s</span>
               <span className="wf-tick">0.0s</span>
@@ -41,43 +83,43 @@ function WaveformViz({ phase, time }: { phase: number; time: number }) {
           </div>
 
           {/* Phase 1: silence */}
-          <div className={`wf-layer wf-silence${phase === 1 ? ' on' : ''}`}>
-            <div className="wf-label">
+          <div className={`wf-layer wf-silence${phase === 1 ? ' on' : ''}`} style={{ transformStyle: "preserve-3d" }}>
+            <div className="wf-label" style={{ transform: isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-label-dot wf-label-dot-mute" />
               <span>NO AUDIO REQUIRED</span>
             </div>
-            <div className="wf-flatline">
+            <div className="wf-flatline" style={{ transform: isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <svg viewBox="0 0 800 100" preserveAspectRatio="none">
                 <line x1="0" y1="50" x2="800" y2="50" stroke="currentColor" strokeWidth="1" strokeDasharray="2 4" opacity="0.4" />
               </svg>
               <div className="wf-silence-text">silence</div>
             </div>
-            <div className="wf-foot">
+            <div className="wf-foot" style={{ transform: isHovering ? "translateZ(10px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-tick">microphone — off</span>
               <span className="wf-tick wf-tick-accent">vision — active</span>
             </div>
           </div>
 
           {/* Phase 2: text emerging */}
-          <div className={`wf-layer wf-text${phase === 2 ? ' on' : ''}`}>
-            <div className="wf-label">
+          <div className={`wf-layer wf-text${phase === 2 ? ' on' : ''}`} style={{ transformStyle: "preserve-3d" }}>
+            <div className="wf-label" style={{ transform: isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-label-dot wf-label-dot-on" />
               <span>VISUAL INFERENCE — DECODED</span>
             </div>
-            <div className="wf-words">
+            <div className="wf-words" style={{ transform: isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-word" style={{ ['--d' as string]: '0ms' }}>communication</span>
               <span className="wf-word" style={{ ['--d' as string]: '120ms' }}>beyond</span>
               <span className="wf-word wf-word-accent" style={{ ['--d' as string]: '240ms' }}>voice</span>
               <span className="wf-cursor" />
             </div>
-            <div className="wf-foot">
+            <div className="wf-foot" style={{ transform: isHovering ? "translateZ(10px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <span className="wf-tick">confidence 0.97</span>
               <span className="wf-tick">38ms · on-device</span>
             </div>
           </div>
         </div>
 
-        <div className="wf-phases">
+        <div className="wf-phases" style={{ transform: isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
           <span className={`wf-phase${phase === 0 ? ' on' : ''}`}>01 &nbsp; sound</span>
           <span className={`wf-phase${phase === 1 ? ' on' : ''}`}>02 &nbsp; silence</span>
           <span className={`wf-phase${phase === 2 ? ' on' : ''}`}>03 &nbsp; meaning</span>
@@ -128,7 +170,7 @@ export default function Hero() {
       <nav className="nav">
         <div className="nav-mark">
           <span className="nav-dot" />
-          <span className="nav-name">SilentSpeak<span className="nav-tld">.ai</span></span>
+          <span className="nav-name">SilentSpeech</span>
         </div>
         <div className="nav-links">
           <a href="#demo">Demo</a>
@@ -136,9 +178,13 @@ export default function Hero() {
           <a href="#use-cases">Use cases</a>
           <a href="#vision">Vision</a>
         </div>
-        <div className="nav-cta">
-          <span className="status-dot" />
-          <span className="status-text">Private preview</span>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <a href="/login" className="btn btn-ghost" style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto' }}>
+            <span>Login</span>
+          </a>
+          <a href="/signup" className="btn btn-primary" style={{ padding: '8px 16px', fontSize: '12px', minHeight: 'auto' }}>
+            <span>Sign Up</span>
+          </a>
         </div>
       </nav>
 
