@@ -18,9 +18,9 @@ class LandmarksDetector:
         container = av.open(filename)
         video_frames = np.array([f.to_ndarray(format='rgb24') for f in container.decode(video=0)])
         container.close()
-        landmarks = self.detect(video_frames, self.full_range_detector)
+        landmarks = self.detect(video_frames, self.short_range_detector)
         if all(element is None for element in landmarks):
-            landmarks = self.detect(video_frames, self.short_range_detector)
+            landmarks = self.detect(video_frames, self.full_range_detector)
             assert any(l is not None for l in landmarks), "Cannot detect any frames in the video"
         return landmarks
 

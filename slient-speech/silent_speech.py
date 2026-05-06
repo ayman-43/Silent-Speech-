@@ -1,11 +1,13 @@
 import cv2
 import time
+import threading
+import tempfile
+import os
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from ollama import AsyncClient
 from pydantic import BaseModel
-from concurrent.futures import ThreadPoolExecutor
-import os
 from pynput import keyboard
-import asyncio
 
 
 class LLMOutput(BaseModel):
@@ -17,24 +19,28 @@ class SilentSpeech:
     def __init__(self):
         self.vsr_model = None
         self.recording = False
-        self.executor = ThreadPoolExecutor(max_workers=1)
+        self.recording_lock = threading.Lock()
+        self.executor = ThreadPoolExecutor(max_workers=3)
 
         self.output_prefix = "webcam"
-        self.res_factor = 3
+        self.res_factor = 1
         self.fps = 16
         self.frame_interval = 1 / self.fps
-        self.frame_compression = 25
+        self.tmp_dir = tempfile.mkdtemp()
 
         self.kbd_controller = keyboard.Controller()
         self.ollama_client = AsyncClient()
 
         self.loop = asyncio.new_event_loop()
+        self._loop_ready = threading.Event()
         self.async_thread = ThreadPoolExecutor(max_workers=1)
         self.async_thread.submit(self._run_event_loop)
+        self._loop_ready.wait()
 
         self.next_sequence_to_type = 0
         self.current_sequence = 0
         self.typing_lock = None
+        self.conversation_history = []
         self._init_async_resources()
 
         self.hotkey = keyboard.GlobalHotKeys({
@@ -44,6 +50,7 @@ class SilentSpeech:
 
     def _run_event_loop(self):
         asyncio.set_event_loop(self.loop)
+        self._loop_ready.set()
         self.loop.run_forever()
 
     def _init_async_resources(self):
@@ -56,9 +63,18 @@ class SilentSpeech:
         self.typing_condition = asyncio.Condition(self.typing_lock)
 
     def toggle_recording(self):
-        self.recording = not self.recording
+        with self.recording_lock:
+            self.recording = not self.recording
 
     async def correct_output_async(self, output, sequence_num):
+        self.conversation_history.append({
+            'role': 'user',
+            'content': f"Transcription:\n\n{output}"
+        })
+        # Rolling window of last 4 exchanges (8 messages) for context
+        if len(self.conversation_history) > 8:
+            self.conversation_history = self.conversation_history[-8:]
+
         response = await self.ollama_client.chat(
             model='qwen3:4b',
             messages=[
@@ -69,6 +85,9 @@ class SilentSpeech:
                         "The text you will receive was transcribed using a video-to-text system that attempts to lipread "
                         "the subject speaking in the video, so the text will likely be imperfect. The input text will also "
                         "be in all-caps, although your response should be capitalized correctly and should NOT be in all-caps.\n\n"
+                        "Lip-reading commonly confuses visually similar phonemes: b/p/m (same lip closure), "
+                        "f/v (same teeth-lip contact), th with s or z, and w with r. When a word looks wrong, "
+                        "check these substitutions first before assuming any other error.\n\n"
                         "If something seems unusual, assume it was mistranscribed. Do your best to infer the words actually spoken, "
                         "and make changes to the mistranscriptions in your response. Do not add more words or content, just change "
                         "the ones that seem to be out of place (and, therefore, mistranscribed). Do not change even the wording of "
@@ -78,15 +97,18 @@ class SilentSpeech:
                         "Return the corrected text in the format of 'list_of_changes' and 'corrected_text'."
                     )
                 },
-                {
-                    'role': 'user',
-                    'content': f"Transcription:\n\n{output}"
-                }
+                *self.conversation_history,
             ],
-            format=LLMOutput.model_json_schema()
+            format=LLMOutput.model_json_schema(),
+            options={"think": False}
         )
 
         chat_output = LLMOutput.model_validate_json(response['message']['content'])
+
+        self.conversation_history.append({
+            'role': 'assistant',
+            'content': response['message']['content']
+        })
 
         chat_output.corrected_text = chat_output.corrected_text.strip()
         if chat_output.corrected_text[-1] not in ['.', '?', '!']:
@@ -125,29 +147,33 @@ class SilentSpeech:
 
         last_frame_time = time.time()
         futures = []
-        output_path = ""
+        output_path = None
         out = None
         frame_count = 0
 
         while True:
             key = cv2.waitKey(1) & 0xFF
             if key == ord('q'):
-                for file in os.listdir():
+                for file in os.listdir(self.tmp_dir):
                     if file.startswith(self.output_prefix) and file.endswith('.mp4'):
-                        os.remove(file)
+                        os.remove(os.path.join(self.tmp_dir, file))
                 break
 
             current_time = time.time()
             if current_time - last_frame_time >= self.frame_interval:
                 ret, frame = cap.read()
                 if ret:
-                    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), self.frame_compression]
-                    _, buffer = cv2.imencode('.jpg', frame, encode_param)
-                    compressed_frame = cv2.imdecode(buffer, cv2.IMREAD_GRAYSCALE)
+                    gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-                    if self.recording:
+                    with self.recording_lock:
+                        is_recording = self.recording
+
+                    if is_recording:
                         if out is None:
-                            output_path = self.output_prefix + str(time.time_ns() // 1_000_000) + '.mp4'
+                            output_path = os.path.join(
+                                self.tmp_dir,
+                                self.output_prefix + str(time.time_ns() // 1_000_000) + '.mp4'
+                            )
                             out = cv2.VideoWriter(
                                 output_path,
                                 cv2.VideoWriter_fourcc(*'mp4v'),
@@ -155,43 +181,49 @@ class SilentSpeech:
                                 (frame_width, frame_height),
                                 False
                             )
-                        out.write(compressed_frame)
+                        out.write(gray_frame)
                         last_frame_time = current_time
-                        cv2.circle(compressed_frame, (frame_width - 20, 20), 10, (0, 0, 0), -1)
                         frame_count += 1
 
-                    elif not self.recording and frame_count > 0:
+                        display = gray_frame.copy()
+                        cv2.circle(display, (frame_width - 20, 20), 10, 255, -1)
+                        cv2.putText(display, "REC", (frame_width - 65, 26),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 2)
+                        cv2.imshow('silent-speech', cv2.flip(display, 1))
+
+                    elif not is_recording and frame_count > 0:
                         if out is not None:
                             out.release()
+                            out = None
 
-                        if frame_count >= self.fps * 2:
+                        if frame_count >= self.fps * 2 and output_path is not None:
                             futures.append(self.executor.submit(self.perform_inference, output_path))
-                        else:
+                        elif output_path is not None:
                             os.remove(output_path)
 
-                        output_path = self.output_prefix + str(time.time_ns() // 1_000_000) + '.mp4'
-                        out = cv2.VideoWriter(
-                            output_path,
-                            cv2.VideoWriter_fourcc(*'mp4v'),
-                            self.fps,
-                            (frame_width, frame_height),
-                            False
-                        )
+                        output_path = None
                         frame_count = 0
 
-                    cv2.imshow('silent-speech', cv2.flip(compressed_frame, 1))
+                        cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
+                    else:
+                        cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
 
-            for fut in futures:
+            for fut in list(futures):
                 if fut.done():
                     result = fut.result()
-                    os.remove(result["video_path"])
+                    if os.path.exists(result["video_path"]):
+                        os.remove(result["video_path"])
                     futures.remove(fut)
-                else:
-                    break
 
         cap.release()
         if out:
             out.release()
+        for file in os.listdir(self.tmp_dir):
+            try:
+                os.remove(os.path.join(self.tmp_dir, file))
+            except OSError:
+                pass
+        os.rmdir(self.tmp_dir)
         cv2.destroyAllWindows()
         self.hotkey.stop()
         self.loop.call_soon_threadsafe(self.loop.stop)
