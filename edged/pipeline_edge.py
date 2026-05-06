@@ -1,21 +1,19 @@
 """
 Edge-optimised inference pipeline.
 
-Three compression modes, pick one via --mode:
+Modes (--mode):
 
-  ctc      CTC greedy decode — skips beam search entirely.
-           10x faster, +2–4% WER. Best for real-time edge.
-
-  int8     Dynamic INT8 quantized model (run quantize.py first).
-           4x smaller, 2–3x faster on CPU, negligible WER change.
-
-  fp16     FP16 half-precision (GPU only, run fp16.py first).
-           2x smaller, ~2x faster on Tensor Core GPUs.
+  ctc      CTC greedy — no beam search. 10x faster, +2–4% WER.
+  int8     INT8 dynamic quantised model. 4x smaller, 2–3x faster CPU.
+  int2     INT2 quantised model (run quantize_int2.py first).
+           20x compression (~47 MB), +3–5% WER.
+  fp16     FP16 half-precision (GPU only).
 
 Usage:
-  python pipeline_edge.py --mode ctc \
+  python pipeline_edge.py --mode int2 \
     --config-path ../slient-speech/configs/LRS3_V_WER19.1.ini \
-    --video path/to/clip.mp4
+    --video path/to/clip.mp4 \
+    --compressed-model int2_encoder_ctc.pth
 """
 
 import os
@@ -95,7 +93,6 @@ class EdgePipeline:
         load_path = compressed_model_path if compressed_model_path else model_path
 
         if mode == 'int8':
-            # Quantize before loading weights
             self.model = torch.quantization.quantize_dynamic(
                 self.model, {torch.nn.Linear}, dtype=torch.qint8
             )
@@ -106,6 +103,12 @@ class EdgePipeline:
             state = torch.load(load_path, map_location=self.device)
             self.model.load_state_dict(state)
             self.model = self.model.half()
+        elif mode == 'int2':
+            # Dequantize INT2 weights back to FP32 then load
+            from quantize_int2 import reconstruct_state
+            int2_state = torch.load(load_path, map_location='cpu')
+            fp32_state = reconstruct_state(int2_state)
+            self.model.load_state_dict(fp32_state, strict=False)
         else:
             state = torch.load(load_path, map_location=self.device)
             self.model.load_state_dict(state)
@@ -162,7 +165,7 @@ class EdgePipeline:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--mode', choices=['ctc', 'int8', 'fp16'], default='ctc')
+    parser.add_argument('--mode', choices=['ctc', 'int8', 'int2', 'fp16'], default='ctc')
     parser.add_argument('--config-path', required=True)
     parser.add_argument('--video', required=True)
     parser.add_argument('--compressed-model', default=None,
