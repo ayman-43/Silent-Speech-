@@ -34,7 +34,7 @@ class SilentSpeech:
 
         self.output_prefix = "webcam"
         self.res_factor = 1
-        self.fps = 25  # match model training FPS (v_fps=25 in config)
+        self.fps = 16
         self.frame_interval = 1 / self.fps
         self.tmp_dir = tempfile.mkdtemp()
 
@@ -44,11 +44,8 @@ class SilentSpeech:
         self._audio_frames: list[bytes] = []
         self._audio_lock = threading.Lock()
 
-        # CLAHE for better lip contrast across different lighting conditions
-        self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-
-        # 1s pre-roll so utterance starts are never clipped
-        self.preroll_buffer = deque(maxlen=int(self.fps * 1.0))
+        # 0.5s pre-roll so the start of an utterance isn't clipped
+        self.preroll_buffer = deque(maxlen=int(self.fps * 0.5))
 
         self.kbd_controller = keyboard.Controller()
         self.ollama_client = None  # created inside the event loop in _create_async_resources
@@ -186,20 +183,20 @@ class SilentSpeech:
                     {
                         'role': 'system',
                         'content': (
-                            "You fix output from a lip-reading AI (Visual Speech Recognition).\n\n"
-                            "INPUT: 5 beam search candidates. Score = log-probability; less negative = more likely. "
-                            "Rank 1 is NOT always correct — check all 5 and pick the most plausible given context.\n\n"
-                            "PHONEME CONFUSION TABLE (these look identical on lips — swap freely to fix words):\n"
-                            "  b / p / m  |  f / v  |  th / s / z  |  w / r / l  |  d / t / n\n\n"
-                            "STEPS IN ORDER:\n"
-                            "1. Choose the candidate or blend that best fits prior conversation context.\n"
-                            "2. Apply phoneme swaps from the table to correct clearly wrong words.\n"
-                            "3. Restore clipped utterance starts — VSR routinely drops the first 1-2 phonemes.\n"
-                            "4. Insert missing function words (a, the, is, to, I) only when grammar demands it.\n"
-                            "5. Fix capitalisation and add terminal punctuation (. ? !).\n\n"
-                            "HARD CONSTRAINT: Never invent content words absent from all candidates. "
-                            "If all candidates look like noise, output Rank 1 text exactly with a period.\n\n"
-                            "Return 'list_of_changes' (one short phrase) and 'corrected_text'."
+                            "You are correcting output from a lip-reading AI. "
+                            "You receive the top-5 beam search candidates ranked by score (less negative = more likely). "
+                            "The top-ranked candidate is often WRONG — the real utterance may be in a lower-ranked candidate or a blend of several. "
+                            "Pick the most contextually plausible interpretation from the candidates, then fix it.\n\n"
+                            "Error patterns to fix:\n"
+                            "1. PHONEME CONFUSIONS: b/p/m look identical on lips, as do f/v, th/s/z, w/r/l. "
+                            "Swap these when a word looks wrong.\n"
+                            "2. OUT-OF-VOCABULARY WORDS: rare words get replaced by visually similar common words. "
+                            "Use context to restore the intended word.\n"
+                            "3. CLIPPED START: the first syllable is often missing. If a candidate looks like the tail "
+                            "of a phrase, reconstruct it from conversation history.\n\n"
+                            "Rules: stay close to what was actually said — do not invent words. "
+                            "Correct capitalisation. End with '.', '?', or '!'. "
+                            "Return 'list_of_changes' (brief) and 'corrected_text'."
                         )
                     },
                     *self.conversation_history,
@@ -318,10 +315,6 @@ class SilentSpeech:
                 ret, frame = cap.read()
                 if ret:
                     gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                    # CLAHE improves lip contrast under varied lighting
-                    enhanced = self.clahe.apply(gray_frame)
-                    # Save as BGR so PyAV decodes cleanly as rgb24
-                    bgr_frame = cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
                     with self.recording_lock:
                         is_recording = self.recording
@@ -337,7 +330,7 @@ class SilentSpeech:
                                 cv2.VideoWriter_fourcc(*'mp4v'),
                                 self.fps,
                                 (frame_width, frame_height),
-                                True  # color (BGR)
+                                False
                             )
                             # flush pre-roll and reset audio buffer for this utterance
                             with self._audio_lock:
@@ -347,11 +340,11 @@ class SilentSpeech:
                             frame_count += len(self.preroll_buffer)
                             self.preroll_buffer.clear()
 
-                        out.write(bgr_frame)
+                        out.write(gray_frame)
                         last_frame_time = current_time
                         frame_count += 1
 
-                        display = enhanced.copy()
+                        display = gray_frame.copy()
                         cv2.circle(display, (frame_width - 20, 20), 10, 255, -1)
                         cv2.putText(display, "REC", (frame_width - 65, 26),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, 255, 2)
@@ -375,10 +368,10 @@ class SilentSpeech:
                         output_path = None
                         frame_count = 0
 
-                        cv2.imshow('silent-speech', cv2.flip(enhanced, 1))
+                        cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
                     else:
-                        self.preroll_buffer.append(bgr_frame)
-                        cv2.imshow('silent-speech', cv2.flip(enhanced, 1))
+                        self.preroll_buffer.append(gray_frame)
+                        cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
 
             for fut in list(futures):
                 if fut.done():
