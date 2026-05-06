@@ -4,6 +4,7 @@ import threading
 import tempfile
 import os
 import asyncio
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from ollama import AsyncClient
 from pydantic import BaseModel
@@ -27,6 +28,10 @@ class SilentSpeech:
         self.fps = 16
         self.frame_interval = 1 / self.fps
         self.tmp_dir = tempfile.mkdtemp()
+
+        # 0.5s pre-roll: always keep the last 8 frames so the start of an
+        # utterance isn't clipped when the user presses Alt mid-word.
+        self.preroll_buffer = deque(maxlen=int(self.fps * 0.5))
 
         self.kbd_controller = keyboard.Controller()
         self.ollama_client = AsyncClient()
@@ -81,20 +86,21 @@ class SilentSpeech:
                 {
                     'role': 'system',
                     'content': (
-                        "You are an assistant that helps make corrections to the output of a lipreading model. "
-                        "The text you will receive was transcribed using a video-to-text system that attempts to lipread "
-                        "the subject speaking in the video, so the text will likely be imperfect. The input text will also "
-                        "be in all-caps, although your response should be capitalized correctly and should NOT be in all-caps.\n\n"
-                        "Lip-reading commonly confuses visually similar phonemes: b/p/m (same lip closure), "
-                        "f/v (same teeth-lip contact), th with s or z, and w with r. When a word looks wrong, "
-                        "check these substitutions first before assuming any other error.\n\n"
-                        "If something seems unusual, assume it was mistranscribed. Do your best to infer the words actually spoken, "
-                        "and make changes to the mistranscriptions in your response. Do not add more words or content, just change "
-                        "the ones that seem to be out of place (and, therefore, mistranscribed). Do not change even the wording of "
-                        "sentences, just individual words that look nonsensical in the context of all of the other words in the sentence.\n\n"
-                        "Also, add correct punctuation to the entire text. ALWAYS end each sentence with the appropriate sentence "
-                        "ending: '.', '?', or '!'.\n\n"
-                        "Return the corrected text in the format of 'list_of_changes' and 'corrected_text'."
+                        "You are an assistant that corrects output from a lip-reading AI model. "
+                        "The text was transcribed by reading lip movements from video — it will be imperfect and in ALL-CAPS. "
+                        "Your response should be correctly capitalised and NOT in all-caps.\n\n"
+                        "Known error patterns — check these in order:\n"
+                        "1. CLIPPED START: The beginning of an utterance is often missing. If the output looks like "
+                        "the tail end of a sentence (e.g. just 'YOU', 'DO', 'GOING TO'), the full phrase was longer. "
+                        "Use conversation history to reconstruct the most likely full phrase.\n"
+                        "2. OUT-OF-VOCABULARY WORDS: Technical terms, proper nouns, commands, and uncommon words "
+                        "will be substituted with visually similar common English words. For example 'alpha' might "
+                        "become 'after', 'forward' might become 'for that'. Reconstruct the intended word from context.\n"
+                        "3. PHONEME CONFUSIONS: b/p/m are identical lip shapes, as are f/v, and th/s/z, and w/r. "
+                        "When a word looks wrong, try these substitutions first.\n\n"
+                        "Rules: Do not add words that were not spoken. Only fix words that are clearly wrong. "
+                        "Add correct punctuation. End every sentence with '.', '?', or '!'.\n\n"
+                        "Return 'list_of_changes' and 'corrected_text'."
                     )
                 },
                 *self.conversation_history,
@@ -111,7 +117,7 @@ class SilentSpeech:
         })
 
         chat_output.corrected_text = chat_output.corrected_text.strip()
-        if chat_output.corrected_text[-1] not in ['.', '?', '!']:
+        if chat_output.corrected_text and chat_output.corrected_text[-1] not in ['.', '?', '!']:
             chat_output.corrected_text += '.'
         chat_output.corrected_text += ' '
 
@@ -181,6 +187,12 @@ class SilentSpeech:
                                 (frame_width, frame_height),
                                 False
                             )
+                            # Flush pre-roll so the start of the utterance isn't clipped
+                            for preroll_frame in self.preroll_buffer:
+                                out.write(preroll_frame)
+                            frame_count += len(self.preroll_buffer)
+                            self.preroll_buffer.clear()
+
                         out.write(gray_frame)
                         last_frame_time = current_time
                         frame_count += 1
@@ -196,7 +208,8 @@ class SilentSpeech:
                             out.release()
                             out = None
 
-                        if frame_count >= self.fps * 2 and output_path is not None:
+                        # 1-second minimum — short phrases like "how are you" are ~1.5s
+                        if frame_count >= self.fps * 1 and output_path is not None:
                             futures.append(self.executor.submit(self.perform_inference, output_path))
                         elif output_path is not None:
                             os.remove(output_path)
@@ -206,6 +219,8 @@ class SilentSpeech:
 
                         cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
                     else:
+                        # Not recording — keep filling the pre-roll buffer
+                        self.preroll_buffer.append(gray_frame)
                         cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
 
             for fut in list(futures):
