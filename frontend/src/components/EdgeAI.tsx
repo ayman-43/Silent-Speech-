@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useTilt } from './useTilt';
 
 const LEDGER_EVENTS = [
   { tag: 'FRAME', label: 'frame.captured', detail: '1280×720 · 33ms', status: 'local' },
@@ -18,7 +19,7 @@ const LEDGER_EVENTS = [
 
 type LedgerRow = typeof LEDGER_EVENTS[0] & { id: number; time: string };
 
-function PrivacyLedger({ t }: { t: number }) {
+function PrivacyLedger({ t, edTilt }: { t: number, edTilt?: any }) {
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const idRef = { current: 0 };
 
@@ -39,7 +40,7 @@ function PrivacyLedger({ t }: { t: number }) {
   const n = rows.length;
 
   return (
-    <div className="pl">
+    <div className="pl" style={{ transform: edTilt ? edTilt.isHovering ? "translateZ(30px)" : "translateZ(0)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
       <div className="pl-head">
         <div className="pl-head-l">
           <span className="ed-tag-dot" />
@@ -126,6 +127,7 @@ function PrivacyLedger({ t }: { t: number }) {
 
 export default function EdgeAI() {
   const [t, setT] = useState(0);
+  const edTilt = useTilt(8);
 
   useEffect(() => {
     let raf: number;
@@ -150,15 +152,22 @@ export default function EdgeAI() {
       </div>
 
       <div className="edge-grid">
-        <div className="edge-diagram">
-          <div className="ed-frame">
-            <div className="ed-corner ed-tl" />
-            <div className="ed-corner ed-tr" />
-            <div className="ed-corner ed-bl" />
-            <div className="ed-corner ed-br" />
+        <div className="edge-diagram" style={edTilt.wrapperStyle}>
+          <div 
+            className="ed-frame"
+            ref={edTilt.ref}
+            onMouseMove={edTilt.handleMouseMove}
+            onMouseEnter={edTilt.handleMouseEnter}
+            onMouseLeave={edTilt.handleMouseLeave}
+            style={edTilt.style}
+          >
+            <div className="ed-corner ed-tl" style={{ transform: edTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+            <div className="ed-corner ed-tr" style={{ transform: edTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+            <div className="ed-corner ed-bl" style={{ transform: edTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+            <div className="ed-corner ed-br" style={{ transform: edTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
 
-            <div className="ed-stage">
-              <svg viewBox="0 0 600 360" className="ed-svg" preserveAspectRatio="xMidYMid meet">
+            <div className="ed-stage" style={{ transform: edTilt.isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease", transformStyle: "preserve-3d" }}>
+              <svg viewBox="0 0 600 360" className="ed-svg" preserveAspectRatio="xMidYMid meet" style={{ transform: edTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
                 <defs>
                   <radialGradient id="devGlow" cx="0.5" cy="0.5" r="0.5">
                     <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.25" />
@@ -248,17 +257,17 @@ export default function EdgeAI() {
                 </g>
               </svg>
 
-              <div className="ed-tag ed-tag-tl">
+              <div className="ed-tag ed-tag-tl" style={{ transform: edTilt.isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
                 <span className="ed-tag-dot" />
                 <span>ON-DEVICE</span>
               </div>
-              <div className="ed-tag ed-tag-tr">
+              <div className="ed-tag ed-tag-tr" style={{ transform: edTilt.isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
                 <span>ZERO TELEMETRY</span>
               </div>
             </div>
           </div>
 
-          <PrivacyLedger t={t} />
+          <PrivacyLedger t={t} edTilt={edTilt} />
         </div>
 
         <div className="edge-pillars">
