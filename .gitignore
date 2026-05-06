@@ -1,0 +1,80 @@
+# ── Claude Code ────────────────────────────────────────────────────────────────
+.claude/**
+**/settings.local.json
+
+# ── Model architecture (excluded from repo) ────────────────────────────────────
+model-arch/
+
+# ── Python virtual environments ────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+# Windows venv dirs (capitalised)
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+.Python
+
+# ── Python cache / compiled ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.so
+pip-log.txt
+*.egg
+*.egg-info/
+dist/
+build/
+
+# ── ML model & dataset files ───────────────────────────────────────────────────
+*.pth
+*.bin
+*.ckpt
+*.safetensors
+LRS3/
+data/
+
+# ── Media / recordings ──────────────────────────────────────────────────────────
+*.mp4
+*.avi
+*.mov
+
+# ── Node.js / Next.js ──────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ── Environment variables ──────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── OS / Editor ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Logs ───────────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Deployment ─────────────────────────────────────────────────────────────────
+.vercel

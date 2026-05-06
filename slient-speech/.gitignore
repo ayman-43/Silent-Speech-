@@ -1,0 +1,64 @@
+# ── Python virtual environments ────────────────────────────────────────────────
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+# Windows venv dirs (capitalised)
+Include/
+Lib/
+Scripts/
+pyvenv.cfg
+.Python
+bin/
+lib/
+include/
+
+# ── Python cache / compiled ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyc
+*.so
+pip-log.txt
+*.egg
+*.egg-info/
+dist/
+build/
+
+# ── ML models & downloaded weights ─────────────────────────────────────────────
+benchmarks/
+*.pth
+*.bin
+*.ckpt
+*.safetensors
+
+# ── Datasets ───────────────────────────────────────────────────────────────────
+LRS3/
+data/
+
+# ── Media / recordings ──────────────────────────────────────────────────────────
+*.mp4
+*.avi
+*.mov
+
+# ── Environment & local config ─────────────────────────────────────────────────
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+settings.local.json
+
+# ── OS / Editor ────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Claude Code ────────────────────────────────────────────────────────────────
+.claude/
