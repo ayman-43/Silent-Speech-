@@ -48,7 +48,7 @@ class SilentSpeech:
         self.preroll_buffer = deque(maxlen=int(self.fps * 0.5))
 
         self.kbd_controller = keyboard.Controller()
-        self.ollama_client = AsyncClient()
+        self.ollama_client = None  # created inside the event loop in _create_async_resources
 
         self.loop = asyncio.new_event_loop()
         self._loop_ready = threading.Event()
@@ -90,6 +90,8 @@ class SilentSpeech:
     async def _create_async_lock(self):
         self.typing_lock = asyncio.Lock()
         self.typing_condition = asyncio.Condition(self.typing_lock)
+        # Create AsyncClient inside the event loop so httpx binds to the right loop
+        self.ollama_client = AsyncClient()
 
     def _write_log(self, text):
         with self.log_lock:
@@ -164,69 +166,92 @@ class SilentSpeech:
             return video_path
 
     async def correct_output_async(self, output, nbest, sequence_num):
-        self.conversation_history.append({
-            'role': 'user',
-            'content': f"Transcription:\n\n{output}"
-        })
-        if len(self.conversation_history) > 8:
-            self.conversation_history = self.conversation_history[-8:]
+        try:
+            candidates = "\n".join(
+                f"  Rank {i+1} (score {score:.1f}): {text}"
+                for i, (text, score) in enumerate(nbest)
+            )
+            user_msg = f"Beam search candidates (best score first):\n{candidates}"
 
-        response = await self.ollama_client.chat(
-            model='qwen3:4b',
-            messages=[
-                {
-                    'role': 'system',
-                    'content': (
-                        "You are an assistant that corrects output from a lip-reading AI model. "
-                        "The text was transcribed by reading lip movements from video — it will be imperfect and in ALL-CAPS. "
-                        "Your response should be correctly capitalised and NOT in all-caps.\n\n"
-                        "Known error patterns — check these in order:\n"
-                        "1. CLIPPED START: The beginning of an utterance is often missing. If the output looks like "
-                        "the tail end of a sentence (e.g. just 'YOU', 'DO', 'GOING TO'), the full phrase was longer. "
-                        "Use conversation history to reconstruct the most likely full phrase.\n"
-                        "2. OUT-OF-VOCABULARY WORDS: Technical terms, proper nouns, commands, and uncommon words "
-                        "will be substituted with visually similar common English words. For example 'alpha' might "
-                        "become 'after', 'forward' might become 'for that'. Reconstruct the intended word from context.\n"
-                        "3. PHONEME CONFUSIONS: b/p/m are identical lip shapes, as are f/v, and th/s/z, and w/r. "
-                        "When a word looks wrong, try these substitutions first.\n\n"
-                        "Rules: Do not add words that were not spoken. Only fix words that are clearly wrong. "
-                        "Add correct punctuation. End every sentence with '.', '?', or '!'.\n\n"
-                        "Return 'list_of_changes' and 'corrected_text'."
-                    )
-                },
-                *self.conversation_history,
-            ],
-            format=LLMOutput.model_json_schema(),
-            options={"think": False}
-        )
+            self.conversation_history.append({'role': 'user', 'content': user_msg})
+            if len(self.conversation_history) > 8:
+                self.conversation_history = self.conversation_history[-8:]
 
-        chat_output = LLMOutput.model_validate_json(response['message']['content'])
+            response = await self.ollama_client.chat(
+                model='qwen3:4b',
+                messages=[
+                    {
+                        'role': 'system',
+                        'content': (
+                            "You are correcting output from a lip-reading AI. "
+                            "You receive the top-5 beam search candidates ranked by score (less negative = more likely). "
+                            "The top-ranked candidate is often WRONG — the real utterance may be in a lower-ranked candidate or a blend of several. "
+                            "Pick the most contextually plausible interpretation from the candidates, then fix it.\n\n"
+                            "Error patterns to fix:\n"
+                            "1. PHONEME CONFUSIONS: b/p/m look identical on lips, as do f/v, th/s/z, w/r/l. "
+                            "Swap these when a word looks wrong.\n"
+                            "2. OUT-OF-VOCABULARY WORDS: rare words get replaced by visually similar common words. "
+                            "Use context to restore the intended word.\n"
+                            "3. CLIPPED START: the first syllable is often missing. If a candidate looks like the tail "
+                            "of a phrase, reconstruct it from conversation history.\n\n"
+                            "Rules: stay close to what was actually said — do not invent words. "
+                            "Correct capitalisation. End with '.', '?', or '!'. "
+                            "Return 'list_of_changes' (brief) and 'corrected_text'."
+                        )
+                    },
+                    *self.conversation_history,
+                ],
+                format=LLMOutput.model_json_schema(),
+                options={"think": False},
+            )
 
-        self.conversation_history.append({
-            'role': 'assistant',
-            'content': response['message']['content']
-        })
+            # Support both new (object) and old (dict) ollama library response formats
+            try:
+                content = response.message.content
+            except AttributeError:
+                content = response['message']['content']
 
-        chat_output.corrected_text = chat_output.corrected_text.strip()
-        if chat_output.corrected_text and chat_output.corrected_text[-1] not in ['.', '?', '!']:
-            chat_output.corrected_text += '.'
-        chat_output.corrected_text += ' '
+            chat_output = LLMOutput.model_validate_json(content)
 
-        self._write_log(
-            f"[LLM CORRECTION — qwen3:4b]\n"
-            f"  Input  : {output}\n"
-            f"  Changes: {chat_output.list_of_changes}\n"
-            f"  Output : {chat_output.corrected_text.strip()}\n\n"
-        )
+            self.conversation_history.append({'role': 'assistant', 'content': content})
 
-        async with self.typing_condition:
-            while self.next_sequence_to_type != sequence_num:
-                await self.typing_condition.wait()
-            self.kbd_controller.type(chat_output.corrected_text)
-            self.next_sequence_to_type += 1
-            self.typing_condition.notify_all()
+            chat_output.corrected_text = chat_output.corrected_text.strip()
+            if chat_output.corrected_text and chat_output.corrected_text[-1] not in '.?!':
+                chat_output.corrected_text += '.'
+            chat_output.corrected_text += ' '
 
-        return chat_output.corrected_text
+            self._write_log(
+                f"[LLM CORRECTION — qwen3:4b]\n"
+                f"  Candidates:\n{candidates}\n"
+                f"  Changes: {chat_output.list_of_changes}\n"
+                f"  Output : {chat_output.corrected_text.strip()}\n\n"
+            )
+
+            async with self.typing_condition:
+                while self.next_sequence_to_type != sequence_num:
+                    await self.typing_condition.wait()
+                self.kbd_controller.type(chat_output.corrected_text)
+                self.next_sequence_to_type += 1
+                self.typing_condition.notify_all()
+
+            return chat_output.corrected_text
+
+        except Exception as e:
+            import traceback
+            self._write_log(
+                f"[LLM ERROR — sequence {sequence_num}]\n"
+                f"  {type(e).__name__}: {e}\n"
+                f"{traceback.format_exc()}\n\n"
+            )
+            # Fall back: type the raw top-1 in lowercase so output isn't lost
+            fallback = output.lower() + '. '
+            async with self.typing_condition:
+                while self.next_sequence_to_type != sequence_num:
+                    await self.typing_condition.wait()
+                self.kbd_controller.type(fallback)
+                self.next_sequence_to_type += 1
+                self.typing_condition.notify_all()
+            return fallback
 
     def perform_inference(self, video_path):
         # Apply current bandit config before running beam search
