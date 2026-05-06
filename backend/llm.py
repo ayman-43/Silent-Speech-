@@ -1,11 +1,13 @@
 """
-Async LLM post-processor (qwen3:4b via Ollama).
+Async LLM post-processor using qwen3:4b via Ollama.
 
-Mirrors the correction logic in slient-speech/silent_speech.py so the
-backend produces the same quality of corrected output as the desktop app.
+Each WebSocket session gets its own LLMCorrector instance so conversation
+history is isolated between clients.  The module-level ``make_corrector()``
+factory is the only public API main.py should use.
 """
 
 import logging
+
 from ollama import AsyncClient
 from pydantic import BaseModel
 
@@ -31,25 +33,33 @@ _SYSTEM_PROMPT = (
 )
 
 
-class _LLMOutput(BaseModel):
+class _Schema(BaseModel):
     list_of_changes: str
     corrected_text: str
 
 
 class LLMCorrector:
-    """Stateful LLM corrector that keeps a rolling conversation history."""
+    """
+    Stateful corrector for one WebSocket session.
+    Keeps a rolling conversation history so consecutive utterances share context.
+    """
 
     def __init__(self):
-        self._client  = AsyncClient()
-        self._history: list[dict] = []
+        self._client:  AsyncClient      = AsyncClient()
+        self._history: list[dict]       = []
 
-    def reset_history(self):
+    def reset(self):
+        """Clear conversation history (e.g. when user starts a new topic)."""
         self._history.clear()
 
-    async def correct(self, transcript: str, nbest: list[tuple[str, float]]) -> str:
+    async def correct(
+        self,
+        transcript: str,
+        nbest: list[tuple[str, float]],
+    ) -> str:
         """
-        Given the VSR top transcript and n-best list, return corrected text.
-        Falls back to capitalised transcript on any error.
+        Call the LLM and return corrected text.
+        Falls back to a capitalised version of *transcript* on any failure.
         """
         candidates = "\n".join(
             f"  Rank {i+1} (score {score:.1f}): {text}"
@@ -68,7 +78,7 @@ class LLMCorrector:
                     {"role": "system", "content": _SYSTEM_PROMPT},
                     *self._history,
                 ],
-                format=_LLMOutput.model_json_schema(),
+                format=_Schema.model_json_schema(),
                 options={"think": False},
             )
 
@@ -77,22 +87,22 @@ class LLMCorrector:
             except AttributeError:
                 content = response["message"]["content"]
 
-            result = _LLMOutput.model_validate_json(content)
+            parsed = _Schema.model_validate_json(content)
             self._history.append({"role": "assistant", "content": content})
 
-            text = result.corrected_text.strip()
+            text = parsed.corrected_text.strip()
             if text and text[-1] not in ".?!":
                 text += "."
             return text
 
         except Exception:
-            logger.exception("LLM correction failed — falling back to raw transcript")
+            logger.exception("LLM correction failed; falling back to raw transcript")
             fallback = transcript.strip().capitalize()
             if fallback and fallback[-1] not in ".?!":
                 fallback += "."
             return fallback
 
 
-# Module-level singleton — one per process, shared across WebSocket sessions.
-# Each WebSocket session calls reset_history() to get a clean context window.
-corrector = LLMCorrector()
+def make_corrector() -> LLMCorrector:
+    """Factory — call once per WebSocket connection."""
+    return LLMCorrector()

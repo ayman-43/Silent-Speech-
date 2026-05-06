@@ -1,14 +1,21 @@
 """
-VSR inference engine.
+VSR inference engine — wraps slient-speech InferencePipeline.
 
-Wraps slient-speech's InferencePipeline for use from the FastAPI backend.
-Handles sys.path injection, CWD management (model paths are relative to
-slient-speech/), CLAHE preprocessing, and temp-file lifecycle.
+Key design decisions
+--------------------
+* sys.path is patched once at import time so all slient-speech submodules
+  (pipelines/, espnet/, …) resolve correctly.
+* Model .ini paths are resolved to absolute before being handed to
+  InferencePipeline, so no os.chdir() gymnastics are needed at inference time.
+* CLAHE is applied per-frame before writing the temp video so the model
+  always sees high-contrast lip imagery regardless of ambient lighting.
+* Temp files are always deleted in a finally block.
 """
 
+import configparser
+import logging
 import os
 import sys
-import logging
 import tempfile
 
 import cv2
@@ -19,24 +26,61 @@ import config as cfg
 
 logger = logging.getLogger(__name__)
 
-# Inject slient-speech so its modules (pipelines, espnet, …) are importable.
+# ── Make slient-speech importable ─────────────────────────────────────────────
 if cfg.SLIENT_SPEECH_DIR not in sys.path:
     sys.path.insert(0, cfg.SLIENT_SPEECH_DIR)
 
 
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _build_absolute_config(src_ini: str) -> str:
+    """
+    Read *src_ini*, make every model/rnnlm path absolute, write to a temp file.
+    The caller owns the temp file and must delete it.
+    """
+    parser = configparser.ConfigParser()
+    parser.read(src_ini)
+
+    path_keys = {"model_path", "model_conf", "rnnlm", "rnnlm_conf"}
+    for section in parser.sections():
+        for key in parser.options(section):
+            if key not in path_keys:
+                continue
+            val = parser.get(section, key).strip()
+            if not val:
+                continue
+            if not os.path.isabs(val):
+                parser.set(section, key, os.path.join(cfg.SLIENT_SPEECH_DIR, val))
+
+    fd, path = tempfile.mkstemp(suffix=".ini", prefix="vsr_abs_")
+    with os.fdopen(fd, "w") as f:
+        parser.write(f)
+    return path
+
+
+# ── Engine ────────────────────────────────────────────────────────────────────
+
 class VSREngine:
-    """Singleton VSR model wrapper.  Call load() once at startup."""
+    """
+    Singleton VSR model.  Call ``load()`` once at application startup.
+    ``infer()`` is blocking — run it in a thread-pool executor.
+    """
 
     def __init__(self):
-        self.pipeline = None
-        self.loaded   = False
-        self.device   = None
-        self.clahe    = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self.pipeline    = None
+        self.loaded      = False
+        self.device      = None
+        self.model_name  = os.path.splitext(os.path.basename(cfg.CONFIG_PATH))[0]
+        self._clahe      = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        self._abs_config = None   # temp file path
 
     # ── initialisation ────────────────────────────────────────────────────────
 
     def load(self):
-        from pipelines.pipeline import InferencePipeline  # needs slient-speech on path
+        from pipelines.pipeline import InferencePipeline  # needs sys.path above
+
+        if not os.path.isfile(cfg.CONFIG_PATH):
+            raise FileNotFoundError(f"Config not found: {cfg.CONFIG_PATH}")
 
         self.device = torch.device(
             f"cuda:{cfg.GPU_IDX}"
@@ -44,68 +88,85 @@ class VSREngine:
             else "cpu"
         )
 
-        # Model paths inside the .ini are relative to slient-speech/, so we
-        # temporarily switch the working directory before handing them to the
-        # pipeline (which passes them straight to torch.load / open).
-        old_cwd = os.getcwd()
-        os.chdir(cfg.SLIENT_SPEECH_DIR)
-        try:
-            self.pipeline = InferencePipeline(
-                cfg.CONFIG_FILENAME,
-                device=self.device,
-                detector=cfg.DETECTOR,
-                face_track=True,
-            )
-            self.loaded = True
-            logger.info(
-                "VSR model loaded  device=%s  detector=%s", self.device, cfg.DETECTOR
-            )
-        finally:
-            os.chdir(old_cwd)
+        # Write an absolute-path copy of the .ini so InferencePipeline can
+        # resolve model files without needing a specific working directory.
+        self._abs_config = _build_absolute_config(cfg.CONFIG_PATH)
+
+        self.pipeline = InferencePipeline(
+            self._abs_config,
+            device=self.device,
+            detector=cfg.DETECTOR,
+            face_track=True,
+        )
+        self.loaded = True
+        logger.info(
+            "VSR loaded  model=%s  device=%s  detector=%s",
+            self.model_name, self.device, cfg.DETECTOR,
+        )
+
+    def unload(self):
+        self.pipeline = None
+        self.loaded   = False
+        if self._abs_config and os.path.exists(self._abs_config):
+            os.unlink(self._abs_config)
+            self._abs_config = None
+
+    # ── preprocessing ─────────────────────────────────────────────────────────
+
+    def preprocess_frame(self, raw_jpeg: bytes) -> np.ndarray | None:
+        """
+        Decode a JPEG byte string → BGR ndarray with CLAHE applied.
+        Returns None if the image cannot be decoded.
+        """
+        arr   = np.frombuffer(raw_jpeg, np.uint8)
+        frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+        if frame is None:
+            return None
+        gray     = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        enhanced = self._clahe.apply(gray)
+        return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
 
     # ── inference ─────────────────────────────────────────────────────────────
 
-    def preprocess(self, frame_bgr: np.ndarray) -> np.ndarray:
-        """CLAHE on the luminance channel, return BGR ready for VideoWriter."""
-        gray     = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-        enhanced = self.clahe.apply(gray)
-        return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-
-    def infer(self, frames: list[np.ndarray], fps: int = cfg.TARGET_FPS):
+    def infer(
+        self,
+        frames: list[np.ndarray],
+        fps: int = cfg.TARGET_FPS,
+    ) -> tuple[str, list[tuple[str, float]]]:
         """
-        Write *frames* to a temp MP4, run InferencePipeline, delete the file.
+        Write *frames* to a temp MP4, run InferencePipeline, clean up.
 
-        Returns (transcript: str, nbest: list[(str, float)]) or raises on failure.
+        Returns ``(transcript, nbest)`` where nbest is a list of
+        ``(text, score)`` pairs ordered best-first.
+
+        Raises on any failure so the caller can send an error to the client.
         """
         if not self.loaded:
-            raise RuntimeError("VSR engine not loaded")
-        if not frames:
-            raise ValueError("No frames supplied")
+            raise RuntimeError("VSR engine not loaded — call load() first")
+        if len(frames) < cfg.MIN_FRAMES:
+            raise ValueError(
+                f"Too few frames: {len(frames)} < {cfg.MIN_FRAMES} (1 second)"
+            )
 
         h, w = frames[0].shape[:2]
 
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".mp4")
-        os.close(tmp_fd)
+        fd, tmp_path = tempfile.mkstemp(suffix=".mp4", prefix="vsr_clip_")
+        os.close(fd)
         try:
-            out = cv2.VideoWriter(
+            writer = cv2.VideoWriter(
                 tmp_path,
                 cv2.VideoWriter_fourcc(*"mp4v"),
-                fps,
+                float(fps),
                 (w, h),
-                True,  # colour (BGR)
+                True,  # colour BGR
             )
             for frame in frames:
-                out.write(frame)
-            out.release()
+                writer.write(frame)
+            writer.release()
 
-            old_cwd = os.getcwd()
-            os.chdir(cfg.SLIENT_SPEECH_DIR)
-            try:
-                transcript, nbest = self.pipeline(tmp_path)
-            finally:
-                os.chdir(old_cwd)
-
+            transcript, nbest = self.pipeline(tmp_path)
             return transcript, nbest
+
         finally:
             try:
                 os.unlink(tmp_path)
@@ -113,5 +174,5 @@ class VSREngine:
                 pass
 
 
-# Module-level singleton — imported by main.py
+# ── module-level singleton ────────────────────────────────────────────────────
 engine = VSREngine()

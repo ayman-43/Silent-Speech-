@@ -1,27 +1,32 @@
 import os
 
-# Absolute path to slient-speech so the backend can import its modules
-# and resolve model file paths regardless of where uvicorn is launched from.
-SLIENT_SPEECH_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "slient-speech")
-)
+# ── Paths ─────────────────────────────────────────────────────────────────────
+ROOT_DIR          = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
+SLIENT_SPEECH_DIR = os.path.join(ROOT_DIR, "slient-speech")
+CONFIGS_DIR       = os.path.join(SLIENT_SPEECH_DIR, "configs")
 
-# ── Model config ──────────────────────────────────────────────────────────────
-CONFIG_FILENAME  = os.path.join(SLIENT_SPEECH_DIR, "configs", "LRS3_V_WER19.1.ini")
-DETECTOR         = os.environ.get("DETECTOR", "mediapipe")   # or "retinaface"
-GPU_IDX          = int(os.environ.get("GPU_IDX", "0"))
-MODEL_NAME       = "LRS3_V_WER19.1"
+# ── Active model (override with env var MODEL_CONFIG) ─────────────────────────
+# Path is resolved relative to slient-speech/ so the pipeline finds weights.
+_cfg_name    = os.environ.get("MODEL_CONFIG", "LRS3_V_WER19.1.ini")
+CONFIG_PATH  = os.path.join(CONFIGS_DIR, _cfg_name)
 
-# ── Recording config ──────────────────────────────────────────────────────────
-TARGET_FPS       = 25          # must match model training fps
-FRAME_WIDTH      = 640
-FRAME_HEIGHT     = 480
-MIN_FRAMES       = TARGET_FPS  # 1 second minimum
+DETECTOR     = os.environ.get("DETECTOR", "mediapipe")   # mediapipe | retinaface
+GPU_IDX      = int(os.environ.get("GPU_IDX", "0"))
 
-# ── LLM config ────────────────────────────────────────────────────────────────
-LLM_MODEL        = "qwen3:4b"
-LLM_HISTORY_MAX  = 8           # conversation turns to keep
+# ── Recording ─────────────────────────────────────────────────────────────────
+TARGET_FPS   = 25          # must match model v_fps in .ini
+MIN_FRAMES   = TARGET_FPS  # 1 second minimum
 
-# ── Server config ─────────────────────────────────────────────────────────────
-HOST             = os.environ.get("HOST", "0.0.0.0")
-PORT             = int(os.environ.get("PORT", "8000"))
+# ── LLM ───────────────────────────────────────────────────────────────────────
+LLM_MODEL        = os.environ.get("LLM_MODEL", "qwen3:4b")
+LLM_HISTORY_MAX  = 8
+
+# ── Server ────────────────────────────────────────────────────────────────────
+HOST  = os.environ.get("HOST", "0.0.0.0")
+PORT  = int(os.environ.get("PORT", "8000"))
+
+# Derived: list all available .ini configs
+def available_configs() -> list[str]:
+    if not os.path.isdir(CONFIGS_DIR):
+        return []
+    return [f for f in os.listdir(CONFIGS_DIR) if f.endswith(".ini")]
