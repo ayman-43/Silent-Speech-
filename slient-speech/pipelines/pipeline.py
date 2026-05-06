@@ -10,7 +10,7 @@ from pipelines.data.data_module import AVSRDataLoader
 
 
 class InferencePipeline(torch.nn.Module):
-    def __init__(self, config_filename, detector="retinaface", face_track=False, device="cuda:0"):
+    def __init__(self, config_filename, detector="retinaface", face_track=False, device="cuda:0", beam_size_override=0):
         super(InferencePipeline, self).__init__()
         assert os.path.isfile(config_filename), f"config_filename: {config_filename} does not exist."
 
@@ -35,7 +35,7 @@ class InferencePipeline(torch.nn.Module):
         penalty = config.getfloat("decode", "penalty")
         ctc_weight = config.getfloat("decode", "ctc_weight")
         lm_weight = config.getfloat("decode", "lm_weight")
-        beam_size = config.getint("decode", "beam_size")
+        beam_size = beam_size_override if beam_size_override > 0 else config.getint("decode", "beam_size")
 
         self.dataloader = AVSRDataLoader(modality, speed_rate=input_v_fps/model_v_fps, detector=detector)
         self.model = AVSR(modality, model_path, model_conf, rnnlm, rnnlm_conf, penalty, ctc_weight, lm_weight, beam_size, device)

@@ -12,7 +12,8 @@ def main(cfg):
         cfg.config_filename,
         device=torch.device(f"cuda:{cfg.gpu_idx}" if torch.cuda.is_available() and cfg.gpu_idx >= 0 else "cpu"),
         detector=cfg.detector,
-        face_track=True
+        face_track=True,
+        beam_size_override=cfg.beam_size,
     )
 
     print("\n\033[48;5;22m\033[97m\033[1m silent-speech ready \033[0m\n")

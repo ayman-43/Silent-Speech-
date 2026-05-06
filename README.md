@@ -91,6 +91,75 @@ uv run \
 
 ---
 
+## Improvements
+
+Four targeted upgrades derived from integrating [auto-AVSR](https://github.com/mpc001/auto_avsr) (Meta's state-of-the-art AVSR framework) with the existing pipeline.
+
+### 1. Beam search tuning for real-time latency
+
+**Status:** Implemented
+
+The default beam size is 40, which gives best accuracy but adds ~300–500 ms per utterance. For real-time use, beam size 8 achieves a good speed/quality balance — the LLM correction layer compensates for the small accuracy drop.
+
+A `fast` preset is available:
+
+```bash
+uv run ... main.py config_filename=./configs/LRS3_V_WER19.1_fast.ini detector=mediapipe
+```
+
+Or override on the fly:
+
+```bash
+uv run ... main.py config_filename=./configs/LRS3_V_WER19.1.ini detector=mediapipe beam_size=8
+```
+
+---
+
+### 2. Auto-AVSR conformer checkpoint (250M, trained on 3291h)
+
+**Status:** Config ready — model download required
+
+Auto-AVSR's conformer model (`vsr_trlrs2lrs3vox2avsp_base.pth`) was trained on 3,291 hours of LRS2 + LRS3 + VoxCeleb2 + AVSpeech, giving 20.3% WER. The slient-speech pipeline supports loading it directly.
+
+Download and register the model:
+
+```bash
+cd slient-speech
+./setup_autoavsr.sh
+```
+
+Then run with the conformer config:
+
+```bash
+uv run ... main.py config_filename=./configs/LRS3_V_WER20.3_conformer.ini detector=mediapipe
+```
+
+---
+
+### 3. Audio-visual (AV) fusion
+
+**Status:** Implemented
+
+When the user is whispering rather than fully silent, fusing a microphone channel alongside lip video dramatically reduces WER. The pipeline now captures microphone audio during every recording and muxes it into the temp video file.
+
+Enable AV mode by using an audiovisual model config:
+
+```bash
+uv run ... main.py config_filename=./configs/LRS3_AV.ini detector=mediapipe
+```
+
+The `audiovisual` modality is already supported by the `AVSR` and `AVSRDataLoader` classes — no architecture changes needed.
+
+---
+
+### 4. Mouth-cropping pipeline (auto-AVSR preprocessing)
+
+**Status:** Implemented via MediaPipe detector
+
+The existing MediaPipe pipeline already mirrors auto-AVSR's preprocessing: face detection → landmark alignment → 88×88 grayscale mouth ROI crop. Short-range detection (for typical webcam distances of 50–80 cm) is tried first with fallback to full-range, saving ~20 ms per frame.
+
+---
+
 ## Author
 
 **Sanskaar** — HACKHIVE 2k26

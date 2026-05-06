@@ -20,3 +20,5 @@ detector: mediapipe
 dst_filename: null
 gpu_idx: 0
 output_subdir: null
+# Override beam size from the ini config (0 = use ini value)
+beam_size: 0

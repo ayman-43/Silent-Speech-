@@ -4,12 +4,20 @@ import threading
 import tempfile
 import os
 import asyncio
+import wave
+import struct
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from ollama import AsyncClient
 from pydantic import BaseModel
 from pynput import keyboard
+
+try:
+    import sounddevice as sd
+    _AUDIO_AVAILABLE = True
+except ImportError:
+    _AUDIO_AVAILABLE = False
 
 
 class LLMOutput(BaseModel):
@@ -29,6 +37,12 @@ class SilentSpeech:
         self.fps = 16
         self.frame_interval = 1 / self.fps
         self.tmp_dir = tempfile.mkdtemp()
+
+        # Audio capture state (for AV fusion)
+        self.audio_sample_rate = 16000
+        self.audio_channels = 1
+        self._audio_frames: list[bytes] = []
+        self._audio_lock = threading.Lock()
 
         # 0.5s pre-roll so the start of an utterance isn't clipped
         self.preroll_buffer = deque(maxlen=int(self.fps * 0.5))
@@ -85,6 +99,69 @@ class SilentSpeech:
     def toggle_recording(self):
         with self.recording_lock:
             self.recording = not self.recording
+
+    # ── Audio capture helpers ────────────────────────────────────────────────
+
+    def _audio_callback(self, indata, frames, time_info, status):
+        if status:
+            pass
+        with self.recording_lock:
+            is_rec = self.recording
+        if is_rec:
+            with self._audio_lock:
+                self._audio_frames.append(bytes(indata))
+
+    def _start_audio_stream(self):
+        if not _AUDIO_AVAILABLE:
+            return None
+        try:
+            stream = sd.RawInputStream(
+                samplerate=self.audio_sample_rate,
+                channels=self.audio_channels,
+                dtype='int16',
+                callback=self._audio_callback,
+            )
+            stream.start()
+            return stream
+        except Exception:
+            return None
+
+    def _save_audio_wav(self, wav_path: str) -> bool:
+        with self._audio_lock:
+            frames = list(self._audio_frames)
+            self._audio_frames.clear()
+        if not frames:
+            return False
+        with wave.open(wav_path, 'wb') as wf:
+            wf.setnchannels(self.audio_channels)
+            wf.setsampwidth(2)  # int16 = 2 bytes
+            wf.setframerate(self.audio_sample_rate)
+            wf.writeframes(b''.join(frames))
+        return True
+
+    def _mux_audio_into_video(self, video_path: str, wav_path: str) -> str:
+        """Combine wav + mp4 into a new mp4 with both streams using the av library."""
+        try:
+            import av as pyav
+            out_path = video_path.replace('.mp4', '_av.mp4')
+            with pyav.open(video_path) as v_in, pyav.open(wav_path) as a_in, pyav.open(out_path, 'w', format='mp4') as out:
+                v_stream = out.add_stream(template=v_in.streams.video[0])
+                a_stream = out.add_stream('aac', rate=self.audio_sample_rate)
+                a_stream.layout = 'mono'
+                for pkt in v_in.demux(v_in.streams.video[0]):
+                    if pkt.dts is None:
+                        continue
+                    pkt.stream = v_stream
+                    out.mux(pkt)
+                for pkt in a_in.demux(a_in.streams.audio[0]):
+                    if pkt.dts is None:
+                        continue
+                    pkt.stream = a_stream
+                    out.mux(pkt)
+            os.remove(wav_path)
+            return out_path
+        except Exception:
+            return video_path
 
     async def correct_output_async(self, output, nbest, sequence_num):
         self.conversation_history.append({
@@ -191,6 +268,9 @@ class SilentSpeech:
         frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 
+        audio_stream = self._start_audio_stream()
+        av_mode = audio_stream is not None and self.vsr_model is not None and getattr(self.vsr_model, 'modality', 'video') == 'audiovisual'
+
         last_frame_time = time.time()
         futures = []
         output_path = None
@@ -227,6 +307,9 @@ class SilentSpeech:
                                 (frame_width, frame_height),
                                 False
                             )
+                            # flush pre-roll and reset audio buffer for this utterance
+                            with self._audio_lock:
+                                self._audio_frames.clear()
                             for preroll_frame in self.preroll_buffer:
                                 out.write(preroll_frame)
                             frame_count += len(self.preroll_buffer)
@@ -248,6 +331,11 @@ class SilentSpeech:
                             out = None
 
                         if frame_count >= self.fps * 1 and output_path is not None:
+                            # Mux captured audio into the video file for AV fusion
+                            if av_mode:
+                                wav_path = output_path.replace('.mp4', '.wav')
+                                if self._save_audio_wav(wav_path):
+                                    output_path = self._mux_audio_into_video(output_path, wav_path)
                             futures.append(self.executor.submit(self.perform_inference, output_path))
                         elif output_path is not None:
                             os.remove(output_path)
@@ -266,6 +354,10 @@ class SilentSpeech:
                     if os.path.exists(result["video_path"]):
                         os.remove(result["video_path"])
                     futures.remove(fut)
+
+        if audio_stream is not None:
+            audio_stream.stop()
+            audio_stream.close()
 
         cap.release()
         if out:
