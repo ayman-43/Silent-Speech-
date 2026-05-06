@@ -1,6 +1,7 @@
 
 
 import os
+import sys
 import json
 import torch
 import argparse
@@ -26,6 +27,15 @@ class AVSR(torch.nn.Module):
         else:
             from espnet.nets.pytorch_backend.e2e_asr_transformer import E2E
 
+        assert os.path.isfile(model_conf), (
+            f"\n[ERROR] model.json not found at: {model_conf}\n"
+            f"  Run: bash setup.sh   (Linux/macOS) or  .\\setup.ps1  (Windows)\n"
+        )
+        assert os.path.isfile(model_path), (
+            f"\n[ERROR] model.pth not found at: {model_path}\n"
+            f"  Run: bash setup.sh   (Linux/macOS) or  .\\setup.ps1  (Windows)\n"
+        )
+
         with open(model_conf, "rb") as f:
             confs = json.load(f)
         args = confs if isinstance(confs, dict) else confs[2]
@@ -39,9 +49,25 @@ class AVSR(torch.nn.Module):
             self.token_list = ['<blank>'] + [word.split()[0] for word in open(file_path, encoding='utf-8').read().splitlines()] + ['<eos>']
         self.odim = len(self.token_list)
 
+        device_str = str(device)
+        is_cuda = 'cuda' in device_str and torch.cuda.is_available()
+
+        print(f"\n\033[1m[VSR]\033[0m Loading model weights from {os.path.basename(model_path)} ...", flush=True)
         self.model = E2E(self.odim, self.train_args)
-        self.model.load_state_dict(torch.load(model_path, map_location=lambda storage, loc: storage))
+        self.model.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=False))
         self.model.to(device=self.device).eval()
+
+        param_count = sum(p.numel() for p in self.model.parameters()) / 1e6
+        if is_cuda:
+            gpu_idx = torch.device(device_str).index or 0
+            gpu_name = torch.cuda.get_device_name(gpu_idx)
+            mem_alloc = torch.cuda.memory_allocated(gpu_idx) / 1024**2
+            mem_total = torch.cuda.get_device_properties(gpu_idx).total_memory / 1024**2
+            print(f"\033[48;5;22m\033[97m\033[1m  GPU LOADED  \033[0m  {gpu_name}")
+            print(f"               Params : {param_count:.0f}M")
+            print(f"               Memory : {mem_alloc:.0f} MB used / {mem_total:.0f} MB total", flush=True)
+        else:
+            print(f"\033[48;5;88m\033[97m\033[1m  CPU MODE  \033[0m  {param_count:.0f}M params — inference will be slow", flush=True)
 
         self.beam_search = get_beam_search_decoder(self.model, self.token_list, rnnlm, rnnlm_conf, penalty, ctc_weight, lm_weight, beam_size)
         self.beam_search.to(device=self.device).eval()

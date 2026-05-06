@@ -60,5 +60,11 @@ Thumbs.db
 *.swp
 *.swo
 
+# ── Runtime / session artifacts ────────────────────────────────────────────────
+debug_log.txt
+bandit_state.json
+corrections.json
+outputs/
+
 # ── Claude Code ────────────────────────────────────────────────────────────────
 .claude/
