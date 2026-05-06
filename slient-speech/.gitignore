@@ -60,5 +60,10 @@ Thumbs.db
 *.swp
 *.swo
 
+# ── Generated session files ────────────────────────────────────────────────────
+debug_log.txt
+bandit_state.json
+corrections.json
+
 # ── Claude Code ────────────────────────────────────────────────────────────────
 .claude/
