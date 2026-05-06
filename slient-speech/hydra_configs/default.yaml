@@ -16,7 +16,7 @@ landmarks_dir: null
 landmarks_filename: null
 landmarks_ext: ".pkl"
 labels_filename: null
-detector: retinaface
+detector: mediapipe
 dst_filename: null
 gpu_idx: 0
 output_subdir: null

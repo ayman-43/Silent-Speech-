@@ -1,0 +1,38 @@
+[
+  {
+    "vsr_raw": "I'M PROUD OF YOU",
+    "llm_output": null,
+    "correct_text": "i am fine how are you",
+    "count": 1
+  },
+  {
+    "vsr_raw": "I WAS HAVING IT AND IT WAS GOOD",
+    "llm_output": null,
+    "correct_text": "i was having dinner it was good",
+    "count": 1
+  },
+  {
+    "vsr_raw": "I AM FIRED MY FIRE IS ON FIRE",
+    "llm_output": null,
+    "correct_text": "i am fine and my friend is also fine",
+    "count": 1
+  },
+  {
+    "vsr_raw": "I DON'T KNOW",
+    "llm_output": null,
+    "correct_text": "how are you",
+    "count": 1
+  },
+  {
+    "vsr_raw": "I AM AWARE THAT",
+    "llm_output": null,
+    "correct_text": "i am going there",
+    "count": 1
+  },
+  {
+    "vsr_raw": "I DON'T KNOW WHAT TO DO",
+    "llm_output": null,
+    "correct_text": "how are you",
+    "count": 1
+  }
+]

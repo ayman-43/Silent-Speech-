@@ -30,8 +30,7 @@ class SilentSpeech:
         self.frame_interval = 1 / self.fps
         self.tmp_dir = tempfile.mkdtemp()
 
-        # 0.5s pre-roll: always keep the last 8 frames so the start of an
-        # utterance isn't clipped when the user presses Alt mid-word.
+        # 0.5s pre-roll so the start of an utterance isn't clipped
         self.preroll_buffer = deque(maxlen=int(self.fps * 0.5))
 
         self.kbd_controller = keyboard.Controller()
@@ -49,12 +48,13 @@ class SilentSpeech:
         self.conversation_history = []
         self._init_async_resources()
 
-        self.log_path = "debug_log.txt"
+        # Anchor log next to this file regardless of Hydra's working directory
+        self.log_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_log.txt")
         self.log_lock = threading.Lock()
-        # Write session header
         self._write_log(
             f"\n{'='*80}\n"
             f"  SESSION START — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"  Log: {self.log_path}\n"
             f"{'='*80}\n"
         )
 
@@ -91,7 +91,6 @@ class SilentSpeech:
             'role': 'user',
             'content': f"Transcription:\n\n{output}"
         })
-        # Rolling window of last 4 exchanges (8 messages) for context
         if len(self.conversation_history) > 8:
             self.conversation_history = self.conversation_history[-8:]
 
@@ -136,22 +135,7 @@ class SilentSpeech:
             chat_output.corrected_text += '.'
         chat_output.corrected_text += ' '
 
-        # Log LLM stage
-        dc = self.vsr_model.decode_config if self.vsr_model else {}
-        beam_lines = "\n".join(
-            f"    Rank {i+1}  (score: {score:>8.2f})  {text}"
-            for i, (text, score) in enumerate(nbest)
-        )
         self._write_log(
-            f"\n{'='*80}\n"
-            f"  UTTERANCE #{sequence_num + 1} — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-            f"{'='*80}\n\n"
-            f"[LRS3 VSR — BEAM SEARCH + LANGUAGE MODEL]\n"
-            f"  lm_weight: {dc.get('lm_weight', '?')}   "
-            f"ctc_weight: {dc.get('ctc_weight', '?')}   "
-            f"penalty: {dc.get('penalty', '?')}   "
-            f"beam_size: {dc.get('beam_size', '?')}\n\n"
-            f"{beam_lines}\n\n"
             f"[LLM CORRECTION — qwen3:4b]\n"
             f"  Input  : {output}\n"
             f"  Changes: {chat_output.list_of_changes}\n"
@@ -168,11 +152,30 @@ class SilentSpeech:
         return chat_output.corrected_text
 
     def perform_inference(self, video_path):
+        # Apply current bandit config before running beam search
         transcript, nbest = self.vsr_model(video_path)
         print(f"\n\033[48;5;21m\033[97m\033[1m RAW OUTPUT \033[0m: {transcript}\n")
 
         sequence_num = self.current_sequence
         self.current_sequence += 1
+
+        # Log VSR stage immediately — before waiting on LLM
+        dc = self.vsr_model.decode_config if self.vsr_model else {}
+        beam_lines = "\n".join(
+            f"    Rank {i+1}  (score: {score:>8.2f})  {text}"
+            for i, (text, score) in enumerate(nbest)
+        )
+        self._write_log(
+            f"\n{'='*80}\n"
+            f"  UTTERANCE #{sequence_num + 1} — {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"{'='*80}\n\n"
+            f"[LRS3 VSR — BEAM SEARCH + LANGUAGE MODEL]\n"
+            f"  lm_weight: {dc.get('lm_weight','?')}   "
+            f"ctc_weight: {dc.get('ctc_weight','?')}   "
+            f"penalty: {dc.get('penalty','?')}   "
+            f"beam_size: {dc.get('beam_size','?')}\n\n"
+            f"{beam_lines}\n\n"
+        )
 
         asyncio.run_coroutine_threadsafe(
             self.correct_output_async(transcript, nbest, sequence_num),
@@ -224,7 +227,6 @@ class SilentSpeech:
                                 (frame_width, frame_height),
                                 False
                             )
-                            # Flush pre-roll so the start of the utterance isn't clipped
                             for preroll_frame in self.preroll_buffer:
                                 out.write(preroll_frame)
                             frame_count += len(self.preroll_buffer)
@@ -245,7 +247,6 @@ class SilentSpeech:
                             out.release()
                             out = None
 
-                        # 1-second minimum — short phrases like "how are you" are ~1.5s
                         if frame_count >= self.fps * 1 and output_path is not None:
                             futures.append(self.executor.submit(self.perform_inference, output_path))
                         elif output_path is not None:
@@ -256,7 +257,6 @@ class SilentSpeech:
 
                         cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
                     else:
-                        # Not recording — keep filling the pre-roll buffer
                         self.preroll_buffer.append(gray_frame)
                         cv2.imshow('silent-speech', cv2.flip(gray_frame, 1))
 

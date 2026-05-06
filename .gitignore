@@ -5,6 +5,9 @@
 # ── Model architecture (excluded from repo) ────────────────────────────────────
 model-arch/
 
+# ── Auto-AVSR (local research subproject, not pushed) ──────────────────────────
+auto_avsr/
+
 # ── Python virtual environments ────────────────────────────────────────────────
 venv/
 .venv/
