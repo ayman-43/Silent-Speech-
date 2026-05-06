@@ -8,10 +8,15 @@ from silent_speech import SilentSpeech
 def main(cfg):
     app = SilentSpeech()
 
+    # RetinaFace gives more accurate lip landmarks than MediaPipe.
+    # Falls back to mediapipe via cfg.detector override if needed:
+    #   main.py ... detector=mediapipe
+    detector = cfg.detector if cfg.detector else "retinaface"
+
     app.vsr_model = InferencePipeline(
         cfg.config_filename,
         device=torch.device(f"cuda:{cfg.gpu_idx}" if torch.cuda.is_available() and cfg.gpu_idx >= 0 else "cpu"),
-        detector=cfg.detector,
+        detector=detector,
         face_track=True,
         beam_size_override=cfg.beam_size,
     )
