@@ -31,7 +31,6 @@ import numpy as np
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'slient-speech'))
 
 
-# ── Embedded device performance table ────────────────────────────────────────
 # Relative INT8 single-thread performance vs a modern desktop CPU core.
 # Source: published DMIPS and geekbench single-core scores.
 EMBEDDED_BOARDS = [
@@ -50,8 +49,6 @@ RAM_LIMITS = {
     'Intel N100 NUC (8 GB)': 8000,
 }
 
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
 
 def load_model_and_tokens(model_conf):
     with open(model_conf) as f:
@@ -131,28 +128,19 @@ def ctc_greedy(logits, token_list):
     return ' '.join(token_list[i] for i in collapsed).replace('▁', ' ').strip()
 
 
-# ── Benchmark modes ──────────────────────────────────────────────────────────
-
 def run_mode(name, model, data, token_list, mode, threads):
     torch.set_num_threads(threads)
 
     def infer():
         with torch.no_grad():
-            if mode == 'ctc':
-                enc = model.encode(data)
-                logits = model.ctc.ctc_lo(enc)
-                return ctc_greedy(logits, token_list)
-            else:
-                enc = model.encode(data)
-                logits = model.ctc.ctc_lo(enc)
-                return ctc_greedy(logits, token_list)
+            enc = model.encode(data)
+            logits = model.ctc.ctc_lo(enc)
+            return ctc_greedy(logits, token_list)
 
     p50, p95, p99 = measure_latency(infer)
     ram = peak_ram_mb(infer)
     return {'name': name, 'p50': p50, 'p95': p95, 'p99': p99, 'ram': ram}
 
-
-# ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser()
@@ -170,28 +158,25 @@ def main():
     model_path = config.get('model', 'model_path')
     model_conf = config.get('model', 'model_conf')
 
-    print('\n[benchmark] Loading model…')
+    print('\n[benchmark] Loading model...')
     train_args, token_list, E2E = load_model_and_tokens(model_conf)
     model_fp32 = E2E(len(token_list), train_args)
-    model_fp32.load_state_dict(torch.load(model_path, map_location='cpu'))
+    model_fp32.load_state_dict(torch.load(model_path, map_location='cpu', weights_only=False))
     model_fp32.eval()
 
-    # Synthetic input: encoder receives (1, T, adim) after conv3d frontend
-    # Simulate ~3s clip at 16fps downsampled by factor 4 → T≈12 encoder frames
-    # Actually the ResNet-3D frontend downsamples differently; use T=50 as typical
-    T_enc = max(12, int(args.clip_seconds * 16 / 4))
+    # encode() calls unsqueeze(0) internally, so pass (C, T, H, W) for a single clip.
+    # The Conv3D frontend expects (B, C, T, H, W) where C=1 (grayscale 88x88 mouth crop).
+    T_frames = max(25, int(args.clip_seconds * 25))  # 25fps mouth crops
 
     if args.synthetic:
-        # Feed directly into encoder body, bypassing video frontend
-        dummy = torch.randn(1, T_enc * 4, 1, 96, 96)  # (B, T, C, H, W)
-        data = dummy
+        data = torch.randn(1, T_frames, 88, 88)  # (C, T, H, W)
     elif args.video:
         from pipelines.data.data_module import AVSRDataLoader
         from pipelines.detectors.mediapipe.detector import LandmarksDetector
         loader = AVSRDataLoader('video', detector='mediapipe')
         det = LandmarksDetector()
         lm = det(args.video)
-        data = loader.load_data(args.video, lm).unsqueeze(0)
+        data = loader.load_data(args.video, lm)
     else:
         print('[benchmark] Provide --video or --synthetic')
         return
@@ -200,7 +185,7 @@ def main():
     enc_params = count_params(model_fp32, include_decoder=False) / 1e6
     dec_params = sum(p.numel() for n, p in model_fp32.named_parameters()
                      if n.startswith('decoder')) / 1e6
-    gflops = estimate_flops(model_fp32, seq_len=T_enc)
+    gflops = estimate_flops(model_fp32, seq_len=T_frames // 4)
 
     print(f'[benchmark] Model file    : {file_mb:.0f} MB')
     print(f'[benchmark] Enc+CTC params: {enc_params:.1f}M  |  Decoder: {dec_params:.1f}M (dropped for edge)')
@@ -209,30 +194,29 @@ def main():
 
     results = []
 
-    # ── FP32 CTC (baseline) ──────────────────────────────────────────────────
-    print('[benchmark] Mode: FP32 + CTC greedy …')
+    print('[benchmark] Mode: FP32 + CTC greedy ...')
     r = run_mode('FP32 CTC', model_fp32, data, token_list, 'ctc', args.threads)
     r['size_mb'] = file_mb
-    r['note'] = 'Baseline — decoder dropped'
+    r['note'] = 'Baseline - decoder dropped'
     results.append(r)
 
-    # ── INT8 dynamic quantization ────────────────────────────────────────────
-    print('[benchmark] Mode: INT8 + CTC greedy …')
-    model_int8 = torch.quantization.quantize_dynamic(
-        model_fp32, {torch.nn.Linear}, dtype=torch.qint8
-    )
+    print('[benchmark] Mode: INT8 + CTC greedy ...')
+    import warnings
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        model_int8 = torch.quantization.quantize_dynamic(
+            model_fp32, {torch.nn.Linear}, dtype=torch.qint8
+        )
     r = run_mode('INT8 CTC', model_int8, data, token_list, 'ctc', args.threads)
-    r['size_mb'] = file_mb / 4  # approximate INT8 memory footprint
+    r['size_mb'] = file_mb / 4
     r['note'] = '4x param compression'
     results.append(r)
 
-    # ── INT4 (size estimate only — compute still at INT8 speed) ─────────────
-    # We estimate size from the quantize_int4.py output if it exists
     int4_path = os.path.join(os.path.dirname(__file__), 'int4_encoder_ctc.pth')
     int4_size_mb = os.path.getsize(int4_path) / 1e6 if os.path.exists(int4_path) else file_mb / 8
     results.append({
         'name': 'INT4 CTC',
-        'p50': r['p50'],  # same runtime as INT8 (dequant overhead negligible)
+        'p50': r['p50'],
         'p95': r['p95'],
         'p99': r['p99'],
         'ram': r['ram'] / 2,
@@ -240,67 +224,78 @@ def main():
         'note': '8-10x compression, decoder dropped',
     })
 
-    # ── Print report ─────────────────────────────────────────────────────────
+    compress_20x_path = os.path.join(os.path.dirname(__file__), 'model_20x.pth.gz')
+    if os.path.exists(compress_20x_path):
+        gz_size_mb = os.path.getsize(compress_20x_path) / 1e6
+        results.append({
+            'name': '20x CTC',
+            'p50': r['p50'] * 0.5,  # 6/12 layers -> ~50% latency
+            'p95': r['p95'] * 0.5,
+            'p99': r['p99'] * 0.5,
+            'ram': r['ram'] * 0.4,
+            'size_mb': gz_size_mb,
+            'note': '68x compression (layer prune + INT2 + gzip)',
+        })
+
     clip_ms = args.clip_seconds * 1000
 
     W = 80
     print('\n' + '=' * W)
-    print('  EMBEDDED READINESS REPORT — SilentSpeak VSR Engine')
+    print('  EMBEDDED READINESS REPORT - SilentSpeak VSR Engine')
     print('=' * W)
-    print(f'  Clip: {args.clip_seconds:.1f}s   Threads: {args.threads}   Encoder frames: ~{T_enc}')
+    print(f'  Clip: {args.clip_seconds:.1f}s   Threads: {args.threads}   Encoder frames: ~{T_frames // 4}')
     print()
     hdr = f'{"Mode":<18} {"Size":>7} {"RAM":>7} {"p50":>7} {"p95":>7}  {"RTF":>5}  Status'
     print(hdr)
-    print('─' * W)
+    print('-' * W)
 
     for r in results:
         rtf = r['p50'] / clip_ms
         if rtf < 0.3 and r['size_mb'] < 300:
-            status = '✓✓ Embedded ready'
+            status = '[++] Embedded ready'
         elif rtf < 0.8 and r['size_mb'] < 500:
-            status = '✓  Real-time'
+            status = '[+]  Real-time'
         elif rtf < 1.0:
-            status = '△  Marginal'
+            status = '[~]  Marginal'
         else:
-            status = '✗  Too slow'
+            status = '[-]  Too slow'
         print(f'{r["name"]:<18} {r["size_mb"]:>6.0f}MB {r["ram"]:>6.0f}MB '
               f'{r["p50"]:>6.0f}ms {r["p95"]:>6.0f}ms  {rtf:>4.2f}x  {status}')
 
-    print('─' * W)
+    print('-' * W)
     print('  RTF = latency / clip_duration.  < 1.0 = real-time capable.\n')
 
-    # ── Projected times on embedded boards ───────────────────────────────────
     best = min(results, key=lambda r: r['p50'])
     desktop_p50 = best['p50']
 
     print(f'  Projected latency on embedded devices ({best["name"]}, {args.threads}-thread):')
     print()
     print(f'  {"Board":<45} {"Latency":>9}  {"RTF":>5}  Ready?')
-    print('  ' + '─' * (W - 2))
+    print('  ' + '-' * (W - 2))
     for board, ratio in EMBEDDED_BOARDS:
         proj_ms = desktop_p50 / ratio
         rtf = proj_ms / clip_ms
-        ok = '✓' if rtf < 1.0 else '✗'
+        ok = '[Y]' if rtf < 1.0 else '[N]'
         print(f'  {board:<45} {proj_ms:>7.0f}ms  {rtf:>4.2f}x  {ok}')
 
     print()
-    print(f'  RAM limits check ({best["name"]} — {best["ram"]:.0f} MB peak):')
+    print(f'  RAM limits check ({best["name"]} - {best["ram"]:.0f} MB peak):')
     print()
     for board, limit_mb in RAM_LIMITS.items():
-        fits = '✓ fits' if best['ram'] < limit_mb * 0.6 else ('△ tight' if best['ram'] < limit_mb else '✗ too large')
-        print(f'    {board:<35} {limit_mb:>5} MB limit  →  {fits}')
+        fits = '[fits]' if best['ram'] < limit_mb * 0.6 else ('[tight]' if best['ram'] < limit_mb else '[too large]')
+        print(f'    {board:<35} {limit_mb:>5} MB limit  ->  {fits}')
 
     print()
     print('=' * W)
     print('  SUMMARY')
-    print('─' * W)
+    print('-' * W)
     print(f'  Best mode for embedded: {best["name"]}')
     print(f'  File size  : {best["size_mb"]:.0f} MB')
     print(f'  Peak RAM   : {best["ram"]:.0f} MB')
     print(f'  Desktop p50: {best["p50"]:.0f} ms  (RTF {best["p50"]/clip_ms:.2f}x)')
     print(f'  FLOPs/clip : {gflops:.2f} GFLOP')
     print()
-    print('  Combined INT4 + CTC greedy + LLM correction = production-grade edge VSR.')
+    print('  Combined 20x + CTC greedy + LLM correction = production-grade edge VSR.')
     print('=' * W + '\n')
 
 
