@@ -22,6 +22,3 @@ gpu_idx: 0
 output_subdir: null
 # Override beam size from the ini config (0 = use ini value)
 beam_size: 0
-# Language code: en zh es fr pt ar
-# Selects the model config automatically; overridden by config_filename if set.
-lang: en

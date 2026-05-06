@@ -26,8 +26,7 @@ class LLMOutput(BaseModel):
 
 
 class SilentSpeech:
-    def __init__(self, lang: str = 'en'):
-        self.lang = lang
+    def __init__(self):
         self.vsr_model = None
         self.recording = False
         self.recording_lock = threading.Lock()
@@ -178,9 +177,6 @@ class SilentSpeech:
             if len(self.conversation_history) > 8:
                 self.conversation_history = self.conversation_history[-8:]
 
-            from multilingual import get_lang_prompt
-            lang_hint = get_lang_prompt(self.lang)
-
             response = await self.ollama_client.chat(
                 model='qwen3:4b',
                 messages=[
@@ -188,18 +184,18 @@ class SilentSpeech:
                         'role': 'system',
                         'content': (
                             "You are correcting output from a lip-reading AI. "
-                            f"{lang_hint}\n\n"
                             "You receive the top-5 beam search candidates ranked by score (less negative = more likely). "
                             "The top-ranked candidate is often WRONG — the real utterance may be in a lower-ranked candidate or a blend of several. "
                             "Pick the most contextually plausible interpretation from the candidates, then fix it.\n\n"
                             "Error patterns to fix:\n"
-                            "1. PHONEME CONFUSIONS: use the language-specific confusions listed above.\n"
+                            "1. PHONEME CONFUSIONS: b/p/m look identical on lips, as do f/v, th/s/z, w/r/l. "
+                            "Swap these when a word looks wrong.\n"
                             "2. OUT-OF-VOCABULARY WORDS: rare words get replaced by visually similar common words. "
                             "Use context to restore the intended word.\n"
                             "3. CLIPPED START: the first syllable is often missing. If a candidate looks like the tail "
                             "of a phrase, reconstruct it from conversation history.\n\n"
                             "Rules: stay close to what was actually said — do not invent words. "
-                            "Correct capitalisation for the language. End with '.', '?', or '!'. "
+                            "Correct capitalisation. End with '.', '?', or '!'. "
                             "Return 'list_of_changes' (brief) and 'corrected_text'."
                         )
                     },
@@ -225,7 +221,7 @@ class SilentSpeech:
             chat_output.corrected_text += ' '
 
             self._write_log(
-                f"[LLM CORRECTION — qwen3:4b lang={self.lang}]\n"
+                f"[LLM CORRECTION — qwen3:4b]\n"
                 f"  Candidates:\n{candidates}\n"
                 f"  Changes: {chat_output.list_of_changes}\n"
                 f"  Output : {chat_output.corrected_text.strip()}\n\n"
