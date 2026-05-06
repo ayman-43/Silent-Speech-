@@ -36,6 +36,8 @@ export const metadata: Metadata = {
   description: "Visual speech recognition, on the edge. No microphone. No cloud. No noise.",
 };
 
+import Providers from "@/components/Providers";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -51,7 +53,9 @@ export default function RootLayout({
         ["--font-mono" as string]: "var(--font-jetbrains-mono), ui-monospace, monospace",
       }}
     >
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

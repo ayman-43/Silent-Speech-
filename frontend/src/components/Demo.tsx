@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState, useMemo } from 'react';
+import { useTilt } from './useTilt';
 
 const DEMO_SCRIPTS = [
   {
@@ -113,6 +114,8 @@ export default function Demo() {
   const [tick, setTick] = useState(0);
   const [revealed, setRevealed] = useState(0);
   const [frameIdx, setFrameIdx] = useState(0);
+  const seqTilt = useTilt(10);
+  const shellTilt = useTilt(6);
 
   const script = DEMO_SCRIPTS[activeScript];
 
@@ -161,17 +164,25 @@ export default function Demo() {
             <div className="dhs-item"><span className="dhs-num">0.97<span className="dhs-unit">avg</span></span><span className="dhs-lbl">confidence</span></div>
           </div>
         </div>
-        <div className="demo-header-3d">
-          <div className="vp-corner vp-tl" />
-          <div className="vp-corner vp-tr" />
-          <div className="vp-corner vp-bl" />
-          <div className="vp-corner vp-br" />
-          <div className="d3-tag">
+        <div style={seqTilt.wrapperStyle}>
+          <div 
+            className="demo-header-3d"
+            ref={seqTilt.ref}
+            onMouseMove={seqTilt.handleMouseMove}
+            onMouseEnter={seqTilt.handleMouseEnter}
+            onMouseLeave={seqTilt.handleMouseLeave}
+            style={seqTilt.style}
+          >
+            <div className="vp-corner vp-tl" style={{ transform: seqTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+            <div className="vp-corner vp-tr" style={{ transform: seqTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+            <div className="vp-corner vp-bl" style={{ transform: seqTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+            <div className="vp-corner vp-br" style={{ transform: seqTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }} />
+          <div className="d3-tag" style={{ transform: seqTilt.isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
             <span className="ed-tag-dot" />
             SEQUENCE · t-{Math.floor((tick * 30) % 90)}
           </div>
           {/* Animated sequence viz in the 3d panel */}
-          <svg viewBox="0 0 400 300" style={{ width: '100%', height: '100%', opacity: 0.7 }}>
+          <svg viewBox="0 0 400 300" style={{ width: '100%', height: '100%', opacity: 0.7, transform: seqTilt.isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
             <defs>
               <radialGradient id="seqGlow" cx="0.5" cy="0.5" r="0.5">
                 <stop offset="0%" stopColor="#b8d8f8" stopOpacity="0.3" />
@@ -197,12 +208,20 @@ export default function Demo() {
             <text x="200" y="146" fontSize="8" fill="#b8d8f8" textAnchor="middle" fontFamily="monospace" letterSpacing="1">SEQUENCE</text>
             <text x="200" y="158" fontSize="7" fill="#82838c" textAnchor="middle" fontFamily="monospace" letterSpacing="0.5">ENCODING</text>
           </svg>
+          </div>
         </div>
       </div>
 
-      <div className="demo-shell">
-        <div className="demo-frame">
-          <div className="demo-topbar">
+      <div className="demo-shell" style={shellTilt.wrapperStyle}>
+        <div 
+          className="demo-frame"
+          ref={shellTilt.ref}
+          onMouseMove={shellTilt.handleMouseMove}
+          onMouseEnter={shellTilt.handleMouseEnter}
+          onMouseLeave={shellTilt.handleMouseLeave}
+          style={shellTilt.style}
+        >
+          <div className="demo-topbar" style={{ transform: shellTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease", transformStyle: "preserve-3d" }}>
             <div className="demo-topbar-l">
               <span className={`rec-dot${running ? ' live' : ''}`} />
               <span className="demo-mono">{running ? 'INFERRING' : 'PAUSED'}</span>
@@ -218,17 +237,17 @@ export default function Demo() {
             </div>
           </div>
 
-          <div className="demo-body">
+          <div className="demo-body" style={{ transform: shellTilt.isHovering ? "translateZ(30px)" : "translateZ(0)", transition: "transform 0.3s ease", transformStyle: "preserve-3d" }}>
             <div className="demo-viewport">
               <div className="vp-corner vp-tl" />
               <div className="vp-corner vp-tr" />
               <div className="vp-corner vp-bl" />
               <div className="vp-corner vp-br" />
-              <div className="vp-context">
+              <div className="vp-context" style={{ transform: shellTilt.isHovering ? "translateZ(20px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
                 <span className="vp-context-label">CONTEXT</span>
                 <span className="vp-context-val">{script.context}</span>
               </div>
-              <div className="vp-stage">
+              <div className="vp-stage" style={{ transform: shellTilt.isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
                 <div className="vp-glow" />
                 <Landmarks tick={tick} active={running} />
                 <div className="vp-scan" style={{ transform: `translateY(${Math.sin(tick * 1.2) * 80}px)` }} />
@@ -242,7 +261,7 @@ export default function Demo() {
               </div>
             </div>
 
-            <div className="demo-pipeline">
+            <div className="demo-pipeline" style={{ transform: shellTilt.isHovering ? "translateZ(40px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
               <PipelineStep num="01" title="Visual capture" detail="68 facial landmarks · 30 fps" active={tick > 0}>
                 <div className="pl-meter">
                   {Array.from({ length: 24 }).map((_, i) => (
@@ -294,7 +313,7 @@ export default function Demo() {
             </div>
           </div>
 
-          <div className="demo-controls">
+          <div className="demo-controls" style={{ transform: shellTilt.isHovering ? "translateZ(10px)" : "translateZ(0)", transition: "transform 0.3s ease" }}>
             <div className="demo-scripts">
               {DEMO_SCRIPTS.map((s, i) => (
                 <button
