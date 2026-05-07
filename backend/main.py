@@ -42,21 +42,24 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, H
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-import config as cfg
-import vsr
-import llm
-
-# Gesture recogniser — lazy import so the VSR backend works even if
-# the gesture module's mediapipe install is separate.
 try:
-    import sys as _sys
-    _sys.path.insert(0, str(__import__("pathlib").Path(__file__).parent.parent))
+    from . import config as cfg
+    from . import vsr
+    from . import llm
+except ImportError:
+    import config as cfg  # type: ignore
+    import vsr            # type: ignore
+    import llm            # type: ignore
+
+# Gesture recogniser — lazy import (mediapipe may be in a separate env)
+import sys as _sys, pathlib as _pl
+_sys.path.insert(0, str(_pl.Path(__file__).parent.parent))
+try:
     from gesture.recognizer import GestureRecognizer as _GestureRecognizer
     _gesture_available = True
 except Exception as _ge:
     _gesture_available = False
-    logger_tmp = __import__("logging").getLogger("silent-speech")
-    logger_tmp.warning("Gesture module unavailable: %s", _ge)
+    __import__("logging").getLogger("silent-speech").warning("Gesture module unavailable: %s", _ge)
 
 # ── logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
