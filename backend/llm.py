@@ -6,6 +6,7 @@ history is isolated between clients.  The module-level ``make_corrector()``
 factory is the only public API main.py should use.
 """
 
+import asyncio
 import logging
 
 from ollama import AsyncClient
@@ -72,14 +73,17 @@ class LLMCorrector:
             self._history = self._history[-cfg.LLM_HISTORY_MAX:]
 
         try:
-            response = await self._client.chat(
-                model=cfg.LLM_MODEL,
-                messages=[
-                    {"role": "system", "content": _SYSTEM_PROMPT},
-                    *self._history,
-                ],
-                format=_Schema.model_json_schema(),
-                options={"think": False},
+            response = await asyncio.wait_for(
+                self._client.chat(
+                    model=cfg.LLM_MODEL,
+                    messages=[
+                        {"role": "system", "content": _SYSTEM_PROMPT},
+                        *self._history,
+                    ],
+                    format=_Schema.model_json_schema(),
+                    options={"think": False},
+                ),
+                timeout=20.0,
             )
 
             try:
@@ -95,6 +99,8 @@ class LLMCorrector:
                 text += "."
             return text
 
+        except asyncio.TimeoutError:
+            logger.warning("LLM timed out after 20 s; falling back to raw transcript")
         except Exception:
             logger.exception("LLM correction failed; falling back to raw transcript")
             fallback = transcript.strip().capitalize()
