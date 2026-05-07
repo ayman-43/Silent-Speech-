@@ -22,7 +22,7 @@ import cv2
 import numpy as np
 import torch
 
-import config as cfg
+from . import config as cfg
 
 logger = logging.getLogger(__name__)
 

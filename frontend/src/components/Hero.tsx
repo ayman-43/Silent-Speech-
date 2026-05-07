@@ -265,12 +265,6 @@ export default function Hero() {
               <path d="M3 7h8m0 0L7 3m4 4l-4 4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </a>
-          <a href="/gesture" className="btn btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 11V7a2 2 0 00-4 0v5M10 11V5a2 2 0 00-4 0v6M6 11a2 2 0 00-4 0v4a8 8 0 008 8h4a8 8 0 008-8v-5a2 2 0 00-4 0" />
-            </svg>
-            <span>Gesture recognition</span>
-          </a>
           <a href="#vision" className="btn btn-ghost">
             <span>Read the vision</span>
           </a>

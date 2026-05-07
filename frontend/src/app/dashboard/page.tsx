@@ -1,19 +1,36 @@
-import { auth } from '@/auth';
-import { redirect } from 'next/navigation';
+'use client';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 import Dashboard from '@/components/dashboard/Dashboard';
 
-export const metadata = { title: 'Dashboard — SilentSpeak AI' };
+export default function DashboardPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
 
-export default async function DashboardPage() {
-  const session = await auth();
-  if (!session?.user) redirect('/login');
+  useEffect(() => {
+    if (status === 'unauthenticated') router.replace('/login');
+  }, [status, router]);
 
+  if (status === 'loading' || !session) {
+    return (
+      <div style={{
+        minHeight: '100vh', background: 'var(--bg-0)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.18em', color: 'var(--fg-3)',
+      }}>
+        LOADING…
+      </div>
+    );
+  }
+
+  const u = session.user;
   return (
     <Dashboard
       user={{
-        name:  session.user.name  ?? null,
-        email: session.user.email ?? null,
-        image: session.user.image ?? null,
+        name:  u?.name  ?? null,
+        email: u?.email ?? null,
+        image: u?.image ?? null,
       }}
     />
   );

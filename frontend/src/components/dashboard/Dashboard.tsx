@@ -1,20 +1,23 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import HistoryPanel from './HistoryPanel';
 import WebcamCapture from './WebcamCapture';
 import UploadArea from './UploadArea';
 import LoadingScreen from './LoadingScreen';
-import ResultDisplay from './ResultDisplay';
+import ResultPopup from './ResultPopup';
 import type { HistoryEntry, ResultData } from './types';
 
-type Mode = 'idle' | 'webcam' | 'upload' | 'loading' | 'result';
+type Mode = 'idle' | 'webcam' | 'upload' | 'loading';
 
 interface Props {
   user: { name: string | null; email: string | null; image: string | null };
 }
 
-const WS_URL  = process.env.NEXT_PUBLIC_BACKEND_WS   ?? 'ws://localhost:8000/ws';
+const WS_URL   = process.env.NEXT_PUBLIC_BACKEND_WS   ?? 'ws://localhost:8000/ws';
 const HTTP_URL = process.env.NEXT_PUBLIC_BACKEND_HTTP ?? 'http://localhost:8000';
+
+// ── Icons ──────────────────────────────────────────────────────────────────────
 
 function CameraIcon() {
   return (
@@ -35,6 +38,14 @@ function UploadIcon() {
   );
 }
 
+function HandIcon() {
+  return (
+    <svg width="44" height="44" viewBox="0 0 44 44" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M33 21v-7a3.5 3.5 0 00-7 0v9M19 21v-11a3.5 3.5 0 00-7 0v11M12 21a3.5 3.5 0 00-7 0v7a15 15 0 0015 15h7a15 15 0 0015-15v-9a3.5 3.5 0 00-7 0" />
+    </svg>
+  );
+}
+
 function CornerMark({ v, h }: { v: 'top' | 'bottom'; h: 'left' | 'right' }) {
   return (
     <span style={{
@@ -43,66 +54,57 @@ function CornerMark({ v, h }: { v: 'top' | 'bottom'; h: 'left' | 'right' }) {
       borderBottom: v === 'bottom' ? '1.5px solid var(--accent)' : 'none',
       borderLeft: h === 'left' ? '1.5px solid var(--accent)' : 'none',
       borderRight: h === 'right' ? '1.5px solid var(--accent)' : 'none',
-      top: v === 'top' ? 8 : 'auto',
-      bottom: v === 'bottom' ? 8 : 'auto',
-      left: h === 'left' ? 8 : 'auto',
-      right: h === 'right' ? 8 : 'auto',
-      opacity: 0.5, transition: 'opacity 200ms ease',
+      top: v === 'top' ? 8 : 'auto', bottom: v === 'bottom' ? 8 : 'auto',
+      left: h === 'left' ? 8 : 'auto', right: h === 'right' ? 8 : 'auto',
+      opacity: 0.5,
     }} />
   );
 }
 
-function ActionCard({
-  icon, label, desc, badge, accent, onClick,
-}: {
-  icon: React.ReactNode; label: string; desc: string; badge: string; accent?: boolean; onClick: () => void;
+function ActionCard({ icon, label, desc, badge, accent, accentColor, onClick }: {
+  icon: React.ReactNode; label: string; desc: string; badge: string;
+  accent?: boolean; accentColor?: string; onClick: () => void;
 }) {
+  const color = accentColor ?? 'var(--accent)';
+  const borderDefault = accent ? `rgba(184,216,248,0.2)` : 'var(--fg-4)';
   return (
     <button
       onClick={onClick}
       style={{
-        position: 'relative', width: 220, padding: '32px 24px',
+        position: 'relative', width: 210, padding: '32px 24px',
         background: accent
-          ? 'linear-gradient(180deg, rgba(184,216,248,0.07), rgba(184,216,248,0.02))'
+          ? `linear-gradient(180deg, ${color}12, ${color}04)`
           : 'linear-gradient(180deg, var(--bg-2), var(--bg-1))',
-        border: `1px solid ${accent ? 'rgba(184,216,248,0.2)' : 'var(--fg-4)'}`,
+        border: `1px solid ${borderDefault}`,
         borderRadius: 10, cursor: 'pointer',
         display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16,
         textAlign: 'center', transition: 'all 200ms ease',
+        color: color,
       }}
       onMouseEnter={e => {
-        (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-3px)';
-        (e.currentTarget as HTMLButtonElement).style.borderColor = 'rgba(184,216,248,0.45)';
-        (e.currentTarget as HTMLButtonElement).style.boxShadow = '0 12px 40px rgba(184,216,248,0.08)';
+        const el = e.currentTarget as HTMLButtonElement;
+        el.style.transform = 'translateY(-3px)';
+        el.style.borderColor = color + '80';
+        el.style.boxShadow = `0 12px 40px ${color}14`;
       }}
       onMouseLeave={e => {
-        (e.currentTarget as HTMLButtonElement).style.transform = '';
-        (e.currentTarget as HTMLButtonElement).style.borderColor = accent ? 'rgba(184,216,248,0.2)' : 'var(--fg-4)';
-        (e.currentTarget as HTMLButtonElement).style.boxShadow = '';
+        const el = e.currentTarget as HTMLButtonElement;
+        el.style.transform = '';
+        el.style.borderColor = borderDefault;
+        el.style.boxShadow = '';
       }}
     >
-      <CornerMark v="top" h="left" />
-      <CornerMark v="top" h="right" />
-      <CornerMark v="bottom" h="left" />
-      <CornerMark v="bottom" h="right" />
-
-      <div style={{ color: 'var(--accent)' }}>{icon}</div>
-
+      <CornerMark v="top" h="left" /><CornerMark v="top" h="right" />
+      <CornerMark v="bottom" h="left" /><CornerMark v="bottom" h="right" />
+      {icon}
       <div>
-        <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg-0)', marginBottom: 6 }}>
-          {label}
-        </div>
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-2)', letterSpacing: '0.06em' }}>
-          {desc}
-        </div>
+        <div style={{ fontFamily: 'var(--font-display)', fontSize: 18, fontWeight: 500, letterSpacing: '-0.02em', color: 'var(--fg-0)', marginBottom: 6 }}>{label}</div>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-2)', letterSpacing: '0.06em' }}>{desc}</div>
       </div>
-
       <div style={{
         fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.15em',
-        color: accent ? 'var(--accent)' : 'var(--fg-3)',
-        padding: '4px 10px',
-        border: `1px solid ${accent ? 'rgba(184,216,248,0.3)' : 'var(--fg-4)'}`,
-        borderRadius: 99,
+        color: accent ? color : 'var(--fg-3)',
+        padding: '4px 10px', border: `1px solid ${accent ? color + '50' : 'var(--fg-4)'}`, borderRadius: 99,
       }}>
         {badge}
       </div>
@@ -110,33 +112,24 @@ function ActionCard({
   );
 }
 
-function IdleScreen({ onWebcam, onUpload }: { onWebcam: () => void; onUpload: () => void }) {
+function IdleScreen({ onWebcam, onUpload, onGesture }: {
+  onWebcam: () => void; onUpload: () => void; onGesture: () => void;
+}) {
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', height: '100%', gap: 48, padding: '40px 32px',
-    }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 48, padding: '40px 32px' }}>
       <div style={{ textAlign: 'center' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14,
-          fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.2em', color: 'var(--accent)', marginBottom: 20,
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.2em', color: 'var(--accent)', marginBottom: 20 }}>
           <span style={{ width: 32, height: 1, background: 'linear-gradient(90deg, transparent, var(--accent))' }} />
-          VISUAL SPEECH RECOGNITION
+          SILENT SPEECH AI
           <span style={{ width: 32, height: 1, background: 'linear-gradient(90deg, var(--accent), transparent)' }} />
         </div>
-        <h2 style={{
-          fontFamily: 'var(--font-display)',
-          fontSize: 'clamp(26px, 3.5vw, 44px)',
-          fontWeight: 500, letterSpacing: '-0.03em', marginBottom: 12, color: 'var(--fg-0)',
-        }}>
-          Choose your input
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(26px, 3.5vw, 44px)', fontWeight: 500, letterSpacing: '-0.03em', marginBottom: 12, color: 'var(--fg-0)' }}>
+          Choose your mode
         </h2>
         <p style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--fg-3)', letterSpacing: '0.06em' }}>
-          Stream live video or upload a recorded clip
+          Live webcam · Upload video · Gesture recognition
         </p>
       </div>
-
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', justifyContent: 'center' }}>
         <ActionCard
           icon={<CameraIcon />}
@@ -153,60 +146,65 @@ function IdleScreen({ onWebcam, onUpload }: { onWebcam: () => void; onUpload: ()
           badge="MP4 / WEBM"
           onClick={onUpload}
         />
+        <ActionCard
+          icon={<HandIcon />}
+          label="Gesture Detection"
+          desc="30+ hand gestures in real time"
+          badge="MEDIAPIPE"
+          accentColor="#a0e0b0"
+          onClick={onGesture}
+        />
       </div>
     </div>
   );
 }
 
+// ── Main Dashboard ─────────────────────────────────────────────────────────────
+
 export default function Dashboard({ user }: Props) {
-  const [mode, setMode] = useState<Mode>('idle');
-  const [result, setResult] = useState<ResultData | null>(null);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const router = useRouter();
+  const [mode, setMode]             = useState<Mode>('idle');
+  const [result, setResult]         = useState<ResultData | null>(null);
+  const [showPopup, setShowPopup]   = useState(false);
+  const [history, setHistory]       = useState<HistoryEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [wsReady, setWsReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [wsReady, setWsReady]       = useState(false);
+  const [error, setError]           = useState<string | null>(null);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const inputKindRef = useRef<'webcam' | 'upload'>('webcam');
+  const wsRef           = useRef<WebSocket | null>(null);
+  const inputKindRef    = useRef<'webcam' | 'upload'>('webcam');
+  const setModeRef      = useRef(setMode);
+  const setResultRef    = useRef(setResult);
+  const setShowPopupRef = useRef(setShowPopup);
+  const setErrorRef     = useRef(setError);
+  const setWsReadyRef   = useRef(setWsReady);
 
-  // Load history from localStorage on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('ss-history');
-      if (raw) setHistory(JSON.parse(raw));
-    } catch {}
-  }, []);
+    setModeRef.current      = setMode;
+    setResultRef.current    = setResult;
+    setShowPopupRef.current = setShowPopup;
+    setErrorRef.current     = setError;
+    setWsReadyRef.current   = setWsReady;
+  });
 
-  // Persist history to localStorage
+  useEffect(() => {
+    try { const s = localStorage.getItem('ss-history'); if (s) setHistory(JSON.parse(s)); } catch {}
+  }, []);
   useEffect(() => {
     localStorage.setItem('ss-history', JSON.stringify(history));
   }, [history]);
 
-  const pushHistory = useCallback((entry: Omit<HistoryEntry, 'id' | 'timestamp'>) => {
-    const id = typeof crypto !== 'undefined' ? crypto.randomUUID() : String(Date.now());
-    setHistory(prev => [{ ...entry, id, timestamp: Date.now() }, ...prev].slice(0, 50));
-    return id;
-  }, []);
-
-  const handleResult = useCallback((raw: string, corrected: string, candidates: Array<{ text: string; score: number }>, inputKind: 'webcam' | 'upload') => {
-    const data: ResultData = { raw, corrected, candidates, input: inputKind };
-    setResult(data);
-    setMode('result');
-    const id = pushHistory({ input: inputKind, raw, corrected, candidates });
-    setSelectedId(id);
-  }, [pushHistory]);
-
-  // WebSocket helpers
-  const sendWsJson = useCallback((msg: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg));
-    }
-  }, []);
+  // ── WebSocket ──────────────────────────────────────────────────────────────
 
   const disconnectWS = useCallback(() => {
-    wsRef.current?.close();
-    wsRef.current = null;
-    setWsReady(false);
+    if (wsRef.current) {
+      wsRef.current.onmessage = null;
+      wsRef.current.onerror   = null;
+      wsRef.current.onclose   = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setWsReadyRef.current(false);
   }, []);
 
   const connectWS = useCallback(() => {
@@ -214,34 +212,45 @@ export default function Dashboard({ user }: Props) {
     const ws = new WebSocket(WS_URL);
     wsRef.current = ws;
 
-    ws.onmessage = e => {
-      try {
-        const msg = JSON.parse(e.data as string);
-        if (msg.type === 'ready') {
-          setWsReady(true);
-        } else if (msg.type === 'recording_stopped') {
-          // backend acknowledged stop — loading screen will follow on 'processing'
-        } else if (msg.type === 'processing') {
-          setMode('loading');
-        } else if (msg.type === 'result') {
-          handleResult(msg.raw ?? '', msg.corrected ?? '', msg.candidates ?? [], inputKindRef.current);
-        } else if (msg.type === 'error') {
-          setError(msg.message ?? 'Backend error');
-          setMode('webcam');
-        }
-      } catch {}
+    ws.onmessage = (e) => {
+      let msg: Record<string, unknown>;
+      try { msg = JSON.parse(e.data as string); } catch { return; }
+
+      const t = msg.type as string;
+      if (t === 'ready') {
+        setWsReadyRef.current(true);
+      } else if (t === 'recording_stopped' || t === 'processing') {
+        setModeRef.current('loading');
+      } else if (t === 'result') {
+        const raw        = (msg.raw        as string) ?? '';
+        const corrected  = (msg.corrected  as string) ?? '';
+        const candidates = (msg.candidates as Array<{ text: string; score: number }>) ?? [];
+        const input      = inputKindRef.current;
+        const data: ResultData = { raw, corrected, candidates, input };
+        setResultRef.current(data);
+        setShowPopupRef.current(true);
+        setModeRef.current('idle');
+        setHistory(prev => {
+          const id = crypto.randomUUID();
+          const entry: HistoryEntry = { id, timestamp: Date.now(), input, raw, corrected, candidates };
+          setSelectedId(id);
+          return [entry, ...prev].slice(0, 50);
+        });
+      } else if (t === 'error') {
+        const msg2 = (msg.message as string) ?? 'Backend error';
+        setErrorRef.current(msg2);
+        setModeRef.current(prev => prev === 'loading' ? 'idle' : prev);
+      }
     };
 
     ws.onerror = () => {
-      setError('Cannot reach backend. Is the server running on port 8000?');
-      setMode('idle');
-      setWsReady(false);
+      setErrorRef.current('Cannot reach backend — is the server running on port 8000?');
+      setModeRef.current('idle');
+      setWsReadyRef.current(false);
     };
+    ws.onclose = () => setWsReadyRef.current(false);
+  }, [disconnectWS]);
 
-    ws.onclose = () => { setWsReady(false); };
-  }, [disconnectWS, handleResult]);
-
-  // Webcam mode handlers
   const startWebcam = useCallback(() => {
     inputKindRef.current = 'webcam';
     setError(null);
@@ -249,20 +258,23 @@ export default function Dashboard({ user }: Props) {
     connectWS();
   }, [connectWS]);
 
-  const handleStartRecording = useCallback(() => { sendWsJson({ type: 'start_recording' }); }, [sendWsJson]);
-  const handleStopRecording  = useCallback(() => { sendWsJson({ type: 'stop_recording' });  }, [sendWsJson]);
-
-  const handleFrame = useCallback((buf: ArrayBuffer) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(buf);
-  }, []);
-
   const leaveWebcam = useCallback(() => {
     disconnectWS();
     setMode('idle');
     setError(null);
   }, [disconnectWS]);
 
-  // Upload flow
+  const sendWsJson = useCallback((msg: object) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN)
+      wsRef.current.send(JSON.stringify(msg));
+  }, []);
+
+  const handleStartRecording = useCallback(() => sendWsJson({ type: 'start_recording' }), [sendWsJson]);
+  const handleStopRecording  = useCallback(() => sendWsJson({ type: 'stop_recording' }),  [sendWsJson]);
+  const handleFrame          = useCallback((buf: ArrayBuffer) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(buf);
+  }, []);
+
   const handleUploadFile = useCallback(async (file: File) => {
     inputKindRef.current = 'upload';
     setError(null);
@@ -273,25 +285,34 @@ export default function Dashboard({ user }: Props) {
       const res = await fetch(`${HTTP_URL}/infer`, { method: 'POST', body: form });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
       const data = await res.json();
-      handleResult(data.raw ?? '', data.corrected ?? '', data.candidates ?? [], 'upload');
+      const raw        = (data.raw        as string) ?? '';
+      const corrected  = (data.corrected  as string) ?? '';
+      const candidates = (data.candidates as Array<{ text: string; score: number }>) ?? [];
+      setResult({ raw, corrected, candidates, input: 'upload' });
+      setShowPopup(true);
+      setMode('idle');
+      setHistory(prev => {
+        const id = crypto.randomUUID();
+        return [{ id, timestamp: Date.now(), input: 'upload', raw, corrected, candidates }, ...prev].slice(0, 50);
+      });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Upload failed');
       setMode('upload');
     }
-  }, [handleResult]);
+  }, []);
 
   const reset = useCallback(() => {
     disconnectWS();
-    setResult(null);
+    setShowPopup(false);
     setError(null);
     setMode('idle');
   }, [disconnectWS]);
 
-  // Cleanup WS on unmount
   useEffect(() => () => { wsRef.current?.close(); }, []);
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-0)', overflow: 'hidden' }}>
+
       {/* Sidebar */}
       <HistoryPanel
         user={user}
@@ -300,20 +321,19 @@ export default function Dashboard({ user }: Props) {
         onSelect={entry => {
           setSelectedId(entry.id);
           setResult({ raw: entry.raw, corrected: entry.corrected, candidates: entry.candidates, input: entry.input });
-          setMode('result');
+          setShowPopup(true);
         }}
         onClear={() => { setHistory([]); setSelectedId(null); }}
       />
 
       {/* Main column */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+
         {/* Top bar */}
         <div style={{
           flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '14px 28px',
-          borderBottom: '1px solid var(--fg-4)',
-          background: 'rgba(6,6,8,0.6)',
-          backdropFilter: 'blur(12px)',
+          padding: '14px 28px', borderBottom: '1px solid var(--fg-4)',
+          background: 'rgba(6,6,8,0.6)', backdropFilter: 'blur(12px)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{
@@ -324,7 +344,6 @@ export default function Dashboard({ user }: Props) {
               SilentSpeak <span style={{ color: 'var(--fg-3)', fontWeight: 400 }}>AI</span>
             </span>
           </div>
-
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
             {mode === 'webcam' && wsReady && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent)' }}>
@@ -332,35 +351,29 @@ export default function Dashboard({ user }: Props) {
                 BACKEND READY
               </span>
             )}
-            {(mode === 'loading' || mode === 'result') && (
-              <button
-                onClick={reset}
-                style={{
-                  fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em',
-                  color: 'var(--fg-3)', background: 'none', border: 'none', cursor: 'pointer',
-                  padding: '4px 0', transition: 'color 140ms ease',
-                }}
+            {mode === 'loading' && (
+              <button onClick={reset} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--fg-3)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 140ms ease' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-0)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)'; }}
-              >
-                ← BACK
+                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)'; }}>
+                ← CANCEL
               </button>
             )}
           </div>
         </div>
 
-        {/* Content area */}
+        {/* Content */}
         <div style={{ flex: 1, minHeight: 0, overflow: 'auto', position: 'relative' }}>
-          {/* Error toast */}
           {error && (
-            <div style={{
-              position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
-              background: 'rgba(192,57,43,0.12)', border: '1px solid rgba(192,57,43,0.35)',
-              borderRadius: 6, padding: '8px 16px', zIndex: 20, whiteSpace: 'nowrap',
-              fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.05em', color: '#ff8b8b',
-              animation: 'fade-up 0.3s ease both',
-            }}>
-              {error}
+            <div
+              onClick={() => setError(null)}
+              style={{
+                position: 'absolute', top: 16, left: '50%', transform: 'translateX(-50%)',
+                background: 'rgba(192,57,43,0.12)', border: '1px solid rgba(192,57,43,0.35)',
+                borderRadius: 6, padding: '8px 20px', zIndex: 20, whiteSpace: 'nowrap',
+                fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.05em', color: '#ff8b8b',
+                animation: 'fade-up 0.3s ease both', cursor: 'pointer',
+              }}>
+              ⚠ {error} &nbsp;×
             </div>
           )}
 
@@ -369,6 +382,7 @@ export default function Dashboard({ user }: Props) {
               <IdleScreen
                 onWebcam={startWebcam}
                 onUpload={() => { setError(null); setMode('upload'); }}
+                onGesture={() => router.push('/gesture')}
               />
             )}
             {mode === 'webcam' && (
@@ -387,18 +401,16 @@ export default function Dashboard({ user }: Props) {
               />
             )}
             {mode === 'loading' && <LoadingScreen />}
-            {mode === 'result' && result && (
-              <ResultDisplay
-                raw={result.raw}
-                corrected={result.corrected}
-                candidates={result.candidates}
-                input={result.input}
-                onReset={reset}
-              />
-            )}
           </div>
         </div>
       </div>
+
+      <ResultPopup
+        result={result}
+        show={showPopup}
+        onClose={() => setShowPopup(false)}
+        onTryAgain={() => { setShowPopup(false); setMode('idle'); }}
+      />
     </div>
   );
 }
