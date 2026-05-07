@@ -16,12 +16,12 @@ export default function AuthFlow({ initialMode = 'login' }: { initialMode?: 'log
 
   useEffect(() => {
     if (session) {
-      router.push('/');
+      router.push('/dashboard');
     }
   }, [session, router]);
 
   const handleGoogleSignIn = () => {
-    signIn('google', { callbackUrl: '/' });
+    signIn('google', { callbackUrl: '/dashboard' });
   };
 
   const isFlipped = mode === 'signup';
