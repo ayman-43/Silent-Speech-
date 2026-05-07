@@ -47,14 +47,14 @@ These sounds look IDENTICAL on the lips — the model cannot distinguish them:
 6. REPEATED     — Stutter in the video can produce duplicated words.
 
 ━━━ YOUR TASK ━━━
-Step 1 — Evaluate ALL candidates (not just rank 1).
-         Which one, possibly with small fixes from the confusion table above,
-         forms a grammatically correct, naturally spoken English phrase?
+Step 1 — Candidates are PRE-RANKED by length-normalised score, so rank 1 is
+         already the statistically best hypothesis. However ALWAYS check ranks
+         2-5 as well — the ranking can still be wrong when a word was missed.
 Step 2 — Use CONVERSATION HISTORY (prior turns) for context.
          What topic are they discussing? What would naturally follow?
 Step 3 — Apply the minimum edits to make it correct:
          • Fix visually confusable phonemes if the resulting word makes more sense
-         • Restore missing function words at the start
+         • Restore missing function words if they are clearly absent
          • Fix capitalisation; add terminal punctuation (. ? !)
 Step 4 — Do NOT invent words that no candidate contains.
          If all candidates look like garbage, pick the best one and clean it up.
@@ -97,9 +97,10 @@ class LLMCorrector:
             for i, (text, score) in enumerate(nbest)
         )
         user_msg = (
-            f"Lip-reading candidates ({len(nbest)} hypotheses, best score first):\n"
+            f"Lip-reading candidates ({len(nbest)} hypotheses, ranked by "
+            f"length-normalised score — rank 1 is most likely):\n"
             f"{candidates}\n\n"
-            f"Top-1 raw text: {nbest[0][0] if nbest else '(none)'}"
+            f"Top-1 (length-normalised best): {nbest[0][0] if nbest else '(none)'}"
         )
 
         self._history.append({"role": "user", "content": user_msg})

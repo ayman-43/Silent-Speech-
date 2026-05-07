@@ -80,12 +80,26 @@ class AVSR(torch.nn.Module):
                 enc_feats = self.model.encode(data.to(self.device))
             raw_hyps = self.beam_search(enc_feats)
             n = min(len(raw_hyps), nbest_count)
-            nbest = []
+            nbest_raw = []
             for hyp in raw_hyps[:n]:
                 text = add_results_to_json([hyp.asdict()], self.token_list)
                 text = text.replace("▁", " ").strip().replace("<eos>", "")
-                nbest.append((text, float(hyp.score)))
-        top = nbest[0][0] if nbest else ""
+                raw_score = float(hyp.score)
+                # hyp.yseq starts with SOS; exclude it for length count.
+                # Length-normalised score penalises the model's natural bias
+                # toward short sequences — e.g. "HELLO THIS IS A VIDEO" (-8.57/5=-1.71)
+                # loses correctly to "HELLO THIS IS A DEMO VIDEO" (-9.76/6=-1.63).
+                tok_len = max(len(hyp.yseq) - 1, 1)
+                norm_score = raw_score / tok_len
+                nbest_raw.append((text, raw_score, norm_score))
+
+        # Re-rank by length-normalised score (less negative = better).
+        # This is the key fix: raw beam scores systematically favour shorter
+        # hypotheses even when a longer one has better per-token probability.
+        nbest_raw.sort(key=lambda x: -x[2])
+
+        top   = nbest_raw[0][0] if nbest_raw else ""
+        nbest = [(text, raw_score) for text, raw_score, _ in nbest_raw]
         return top, nbest
 
 
