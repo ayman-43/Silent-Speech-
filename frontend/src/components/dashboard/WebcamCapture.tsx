@@ -1,11 +1,11 @@
 'use client';
 import { useRef, useEffect, useState, useCallback } from 'react';
+import type { ResultData } from './types';
+
+const HTTP_URL = process.env.NEXT_PUBLIC_BACKEND_HTTP ?? 'http://localhost:8000';
 
 interface Props {
-  wsReady: boolean;
-  onFrame: (buf: ArrayBuffer) => void;
-  onStartRecording: () => void;
-  onStopRecording: () => void;
+  onResult: (result: ResultData) => void;
   onBack: () => void;
 }
 
@@ -26,21 +26,25 @@ function Corner({ v, h }: { v: 'top' | 'bottom'; h: 'left' | 'right' }) {
   );
 }
 
-export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onStopRecording, onBack }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [hasStream, setHasStream] = useState(false);
-  const [recording, setRecording] = useState(false);
-  const [frameCount, setFrameCount] = useState(0);
-  const [permErr, setPermErr] = useState<string | null>(null);
+type CaptureState = 'idle' | 'recording' | 'processing' | 'error';
+
+export default function WebcamCapture({ onResult, onBack }: Props) {
+  const videoRef       = useRef<HTMLVideoElement>(null);
+  const recorderRef    = useRef<MediaRecorder | null>(null);
+  const chunksRef      = useRef<Blob[]>([]);
+  const streamRef      = useRef<MediaStream | null>(null);
+  const [hasStream,  setHasStream]  = useState(false);
+  const [state,      setState]      = useState<CaptureState>('idle');
+  const [elapsed,    setElapsed]    = useState(0);
+  const [permErr,    setPermErr]    = useState<string | null>(null);
+  const [errMsg,     setErrMsg]     = useState<string | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
-    let stream: MediaStream;
     navigator.mediaDevices
       .getUserMedia({ video: { width: 640, height: 480, frameRate: 25 }, audio: false })
       .then(s => {
-        stream = s;
+        streamRef.current = s;
         if (videoRef.current) {
           videoRef.current.srcObject = s;
           videoRef.current.play().catch(() => {});
@@ -49,41 +53,84 @@ export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onSt
       })
       .catch(err => setPermErr(err.message ?? 'Camera permission denied'));
 
-    return () => { stream?.getTracks().forEach(t => t.stop()); };
+    return () => {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, []);
 
   const startRecording = useCallback(() => {
-    if (!hasStream || !wsReady) return;
-    setRecording(true);
-    setFrameCount(0);
-    onStartRecording();
+    if (!hasStream || !streamRef.current) return;
+    chunksRef.current = [];
+    setElapsed(0);
+    setErrMsg(null);
 
-    intervalRef.current = setInterval(() => {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      if (!video || !canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, 640, 480);
-      canvas.toBlob(blob => {
-        if (!blob) return;
-        blob.arrayBuffer().then(buf => {
-          onFrame(buf);
-          setFrameCount(c => c + 1);
-        });
-      }, 'image/jpeg', 0.85);
-    }, 1000 / 25);
-  }, [hasStream, wsReady, onFrame, onStartRecording]);
+    const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9'
+      : MediaRecorder.isTypeSupported('video/webm')
+      ? 'video/webm'
+      : 'video/mp4';
+
+    const recorder = new MediaRecorder(streamRef.current, { mimeType });
+    recorderRef.current = recorder;
+
+    recorder.ondataavailable = e => {
+      if (e.data.size > 0) chunksRef.current.push(e.data);
+    };
+
+    recorder.onstop = async () => {
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      setState('processing');
+
+      const blob = new Blob(chunksRef.current, { type: mimeType });
+      const ext  = mimeType.includes('mp4') ? 'mp4' : 'webm';
+      const form = new FormData();
+      form.append('file', blob, `recording.${ext}`);
+
+      try {
+        const res = await fetch(`${HTTP_URL}/infer`, { method: 'POST', body: form });
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          throw new Error(`Server ${res.status}${body ? ': ' + body : ''}`);
+        }
+        const data = await res.json();
+        const raw        = (data.raw        as string) ?? '';
+        const corrected  = (data.corrected  as string) ?? '';
+        const candidates = (data.candidates as Array<{ text: string; score: number }>) ?? [];
+        onResult({ raw, corrected, candidates, input: 'webcam' });
+        setState('idle');
+      } catch (err: unknown) {
+        setErrMsg(err instanceof Error ? err.message : 'Upload failed');
+        setState('error');
+      }
+    };
+
+    recorder.start(200); // collect chunks every 200ms
+    setState('recording');
+
+    timerRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
+  }, [hasStream, onResult]);
 
   const stopRecording = useCallback(() => {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-    setRecording(false);
-    onStopRecording();
-  }, [onStopRecording]);
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+  }, []);
 
-  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
+  const canRecord = hasStream && state === 'idle';
+  const isRecording = state === 'recording';
+  const isProcessing = state === 'processing';
 
-  const canRecord = hasStream && wsReady && !recording;
+  const statusColor  = isRecording ? '#ff4f4f' : isProcessing ? '#f0c040' : hasStream ? 'var(--accent)' : 'var(--fg-3)';
+  const statusLabel  = isRecording
+    ? `● REC · ${elapsed}s`
+    : isProcessing
+    ? 'PROCESSING…'
+    : state === 'error'
+    ? 'ERROR'
+    : hasStream
+    ? 'READY'
+    : 'WAITING FOR CAMERA…';
 
   return (
     <div style={{
@@ -101,7 +148,7 @@ export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onSt
       <div style={{
         position: 'relative',
         background: 'linear-gradient(180deg, var(--bg-2), var(--bg-1))',
-        border: `1px solid ${recording ? 'rgba(255,79,79,0.4)' : 'var(--fg-4)'}`,
+        border: `1px solid ${isRecording ? 'rgba(255,79,79,0.4)' : 'var(--fg-4)'}`,
         borderRadius: 8, overflow: 'hidden',
         width: '100%', maxWidth: 600,
         aspectRatio: '4/3',
@@ -117,19 +164,17 @@ export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onSt
           position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
           zIndex: 10, display: 'flex', alignItems: 'center', gap: 6,
           padding: '5px 12px', background: 'rgba(0,0,0,0.65)',
-          border: `1px solid ${recording ? 'rgba(255,79,79,0.5)' : wsReady ? 'rgba(184,216,248,0.3)' : 'var(--fg-4)'}`,
+          border: `1px solid ${isRecording ? 'rgba(255,79,79,0.5)' : 'rgba(184,216,248,0.25)'}`,
           borderRadius: 99, fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.15em',
-          transition: 'border-color 300ms ease',
+          transition: 'border-color 300ms ease', whiteSpace: 'nowrap',
         }}>
           <span style={{
             width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-            background: recording ? '#ff4f4f' : wsReady ? 'var(--accent)' : 'var(--fg-3)',
-            boxShadow: recording ? '0 0 8px rgba(255,79,79,0.8)' : wsReady ? '0 0 6px var(--accent)' : 'none',
-            animation: (recording || wsReady) ? 'pulse-dot 1.4s ease-in-out infinite' : 'none',
+            background: statusColor,
+            boxShadow: isRecording ? '0 0 8px rgba(255,79,79,0.8)' : isProcessing ? '0 0 8px rgba(240,192,64,0.8)' : 'none',
+            animation: (isRecording || isProcessing) ? 'pulse-dot 1.4s ease-in-out infinite' : 'none',
           }} />
-          <span style={{ color: recording ? '#ff8b8b' : wsReady ? 'var(--accent)' : 'var(--fg-3)' }}>
-            {recording ? `● REC · ${frameCount} frames` : wsReady ? 'READY' : 'CONNECTING…'}
-          </span>
+          <span style={{ color: statusColor }}>{statusLabel}</span>
         </div>
 
         {permErr ? (
@@ -149,10 +194,20 @@ export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onSt
           />
         )}
 
-        <canvas ref={canvasRef} width={640} height={480} style={{ display: 'none' }} />
+        {/* Processing overlay */}
+        {isProcessing && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(6,6,8,0.7)', fontFamily: 'var(--font-mono)', fontSize: 11,
+            letterSpacing: '0.15em', color: '#f0c040', flexDirection: 'column', gap: 12,
+          }}>
+            <div style={{ width: 32, height: 32, border: '2px solid #f0c040', borderTopColor: 'transparent', borderRadius: '50%', animation: 'spin 0.9s linear infinite' }} />
+            DECODING WITH BEAM SEARCH…
+          </div>
+        )}
 
         {/* Scan line while recording */}
-        {recording && (
+        {isRecording && (
           <div style={{
             position: 'absolute', left: 0, right: 0, height: 60,
             background: 'linear-gradient(180deg, transparent, rgba(184,216,248,0.06), transparent)',
@@ -162,28 +217,44 @@ export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onSt
         )}
       </div>
 
+      {/* Error message */}
+      {errMsg && (
+        <div onClick={() => { setErrMsg(null); setState('idle'); }} style={{
+          fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.05em', color: '#ff8b8b',
+          background: 'rgba(192,57,43,0.12)', border: '1px solid rgba(192,57,43,0.35)',
+          borderRadius: 6, padding: '8px 20px', cursor: 'pointer',
+        }}>
+          ⚠ {errMsg} &nbsp;×
+        </div>
+      )}
+
       {/* Controls */}
       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
         <button
           onClick={onBack}
+          disabled={isProcessing}
           style={{
             padding: '10px 20px', background: 'transparent', border: '1px solid var(--fg-4)',
-            borderRadius: 99, cursor: 'pointer', fontFamily: 'var(--font-mono)', fontSize: 11,
-            letterSpacing: '0.1em', color: 'var(--fg-2)', transition: 'all 160ms ease',
+            borderRadius: 99, cursor: isProcessing ? 'default' : 'pointer',
+            fontFamily: 'var(--font-mono)', fontSize: 11,
+            letterSpacing: '0.1em', color: isProcessing ? 'var(--fg-3)' : 'var(--fg-2)',
+            transition: 'all 160ms ease', opacity: isProcessing ? 0.4 : 1,
           }}
           onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-0)';
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--fg-2)';
+            if (!isProcessing) {
+              (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-0)';
+              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--fg-2)';
+            }
           }}
           onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-2)';
+            (e.currentTarget as HTMLButtonElement).style.color = isProcessing ? 'var(--fg-3)' : 'var(--fg-2)';
             (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--fg-4)';
           }}
         >
           ← BACK
         </button>
 
-        {!recording ? (
+        {!isRecording ? (
           <button
             onClick={startRecording}
             disabled={!canRecord}
@@ -227,17 +298,14 @@ export default function WebcamCapture({ wsReady, onFrame, onStartRecording, onSt
         )}
       </div>
 
-      {!wsReady && !permErr && !recording && (
-        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)', letterSpacing: '0.12em', animation: 'fade-up 0.4s ease both' }}>
-          Waiting for backend connection…
-        </div>
-      )}
-
       <style>{`
         @keyframes scan-line {
           0%   { top: 0%; }
           50%  { top: calc(100% - 60px); }
           100% { top: 0%; }
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
         }
       `}</style>
     </div>

@@ -7,7 +7,7 @@ CONFIGS_DIR       = os.path.join(SLIENT_SPEECH_DIR, "configs")
 
 # ── Active model (override with env var MODEL_CONFIG) ─────────────────────────
 # Path is resolved relative to slient-speech/ so the pipeline finds weights.
-_cfg_name    = os.environ.get("MODEL_CONFIG", "LRS3_V_WER19.1.ini")
+_cfg_name    = os.environ.get("MODEL_CONFIG", "LRS3_V_WER19.1_fast.ini")
 CONFIG_PATH  = os.path.join(CONFIGS_DIR, _cfg_name)
 
 DETECTOR     = os.environ.get("DETECTOR", "mediapipe")   # mediapipe | retinaface
@@ -20,6 +20,7 @@ MIN_FRAMES   = TARGET_FPS  # 1 second minimum
 # ── LLM ───────────────────────────────────────────────────────────────────────
 LLM_MODEL        = os.environ.get("LLM_MODEL", "qwen3:4b")
 LLM_HISTORY_MAX  = 16   # keep 8 full exchange pairs for multi-turn context
+LLM_TIMEOUT      = float(os.environ.get("LLM_TIMEOUT", "8"))  # seconds
 
 # ── Server ────────────────────────────────────────────────────────────────────
 HOST  = os.environ.get("HOST", "0.0.0.0")

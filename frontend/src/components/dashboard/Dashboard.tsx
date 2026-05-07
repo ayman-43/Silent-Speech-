@@ -1,20 +1,18 @@
 'use client';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import HistoryPanel from './HistoryPanel';
 import WebcamCapture from './WebcamCapture';
 import UploadArea from './UploadArea';
-import LoadingScreen from './LoadingScreen';
 import ResultPopup from './ResultPopup';
 import type { HistoryEntry, ResultData } from './types';
 
-type Mode = 'idle' | 'webcam' | 'upload' | 'loading';
+type Mode = 'idle' | 'webcam' | 'upload';
 
 interface Props {
   user: { name: string | null; email: string | null; image: string | null };
 }
 
-const WS_URL   = process.env.NEXT_PUBLIC_BACKEND_WS   ?? 'ws://localhost:8000/ws';
 const HTTP_URL = process.env.NEXT_PUBLIC_BACKEND_HTTP ?? 'http://localhost:8000';
 
 // ── Icons ──────────────────────────────────────────────────────────────────────
@@ -168,24 +166,7 @@ export default function Dashboard({ user }: Props) {
   const [showPopup, setShowPopup]   = useState(false);
   const [history, setHistory]       = useState<HistoryEntry[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [wsReady, setWsReady]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
-
-  const wsRef           = useRef<WebSocket | null>(null);
-  const inputKindRef    = useRef<'webcam' | 'upload'>('webcam');
-  const setModeRef      = useRef(setMode);
-  const setResultRef    = useRef(setResult);
-  const setShowPopupRef = useRef(setShowPopup);
-  const setErrorRef     = useRef(setError);
-  const setWsReadyRef   = useRef(setWsReady);
-
-  useEffect(() => {
-    setModeRef.current      = setMode;
-    setResultRef.current    = setResult;
-    setShowPopupRef.current = setShowPopup;
-    setErrorRef.current     = setError;
-    setWsReadyRef.current   = setWsReady;
-  });
 
   useEffect(() => {
     try { const s = localStorage.getItem('ss-history'); if (s) setHistory(JSON.parse(s)); } catch {}
@@ -194,89 +175,22 @@ export default function Dashboard({ user }: Props) {
     localStorage.setItem('ss-history', JSON.stringify(history));
   }, [history]);
 
-  // ── WebSocket ──────────────────────────────────────────────────────────────
-
-  const disconnectWS = useCallback(() => {
-    if (wsRef.current) {
-      wsRef.current.onmessage = null;
-      wsRef.current.onerror   = null;
-      wsRef.current.onclose   = null;
-      wsRef.current.close();
-      wsRef.current = null;
-    }
-    setWsReadyRef.current(false);
-  }, []);
-
-  const connectWS = useCallback(() => {
-    disconnectWS();
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-
-    ws.onmessage = (e) => {
-      let msg: Record<string, unknown>;
-      try { msg = JSON.parse(e.data as string); } catch { return; }
-
-      const t = msg.type as string;
-      if (t === 'ready') {
-        setWsReadyRef.current(true);
-      } else if (t === 'recording_stopped' || t === 'processing') {
-        setModeRef.current('loading');
-      } else if (t === 'result') {
-        const raw        = (msg.raw        as string) ?? '';
-        const corrected  = (msg.corrected  as string) ?? '';
-        const candidates = (msg.candidates as Array<{ text: string; score: number }>) ?? [];
-        const input      = inputKindRef.current;
-        const data: ResultData = { raw, corrected, candidates, input };
-        setResultRef.current(data);
-        setShowPopupRef.current(true);
-        setModeRef.current('idle');
-        setHistory(prev => {
-          const id = crypto.randomUUID();
-          const entry: HistoryEntry = { id, timestamp: Date.now(), input, raw, corrected, candidates };
-          setSelectedId(id);
-          return [entry, ...prev].slice(0, 50);
-        });
-      } else if (t === 'error') {
-        const msg2 = (msg.message as string) ?? 'Backend error';
-        setErrorRef.current(msg2);
-        setModeRef.current('idle');
-      }
-    };
-
-    ws.onerror = () => {
-      setErrorRef.current('Cannot reach backend — is the server running on port 8000?');
-      setModeRef.current('idle');
-      setWsReadyRef.current(false);
-    };
-    ws.onclose = () => setWsReadyRef.current(false);
-  }, [disconnectWS]);
-
-  const startWebcam = useCallback(() => {
-    inputKindRef.current = 'webcam';
-    setError(null);
-    setMode('webcam');
-    connectWS();
-  }, [connectWS]);
-
-  const leaveWebcam = useCallback(() => {
-    disconnectWS();
+  const handleResult = useCallback((data: ResultData) => {
+    setResult(data);
+    setShowPopup(true);
     setMode('idle');
-    setError(null);
-  }, [disconnectWS]);
-
-  const sendWsJson = useCallback((msg: object) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN)
-      wsRef.current.send(JSON.stringify(msg));
-  }, []);
-
-  const handleStartRecording = useCallback(() => sendWsJson({ type: 'start_recording' }), [sendWsJson]);
-  const handleStopRecording  = useCallback(() => sendWsJson({ type: 'stop_recording' }),  [sendWsJson]);
-  const handleFrame          = useCallback((buf: ArrayBuffer) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) wsRef.current.send(buf);
+    setHistory(prev => {
+      const id = crypto.randomUUID();
+      const entry: HistoryEntry = {
+        id, timestamp: Date.now(),
+        input: data.input, raw: data.raw, corrected: data.corrected, candidates: data.candidates,
+      };
+      setSelectedId(id);
+      return [entry, ...prev].slice(0, 50);
+    });
   }, []);
 
   const handleUploadFile = useCallback(async (file: File) => {
-    inputKindRef.current = 'upload';
     setError(null);
     const form = new FormData();
     form.append('file', file);
@@ -287,27 +201,12 @@ export default function Dashboard({ user }: Props) {
       const raw        = (data.raw        as string) ?? '';
       const corrected  = (data.corrected  as string) ?? '';
       const candidates = (data.candidates as Array<{ text: string; score: number }>) ?? [];
-      setResult({ raw, corrected, candidates, input: 'upload' });
-      setShowPopup(true);
-      setMode('idle');
-      setHistory(prev => {
-        const id = crypto.randomUUID();
-        return [{ id, timestamp: Date.now(), input: 'upload', raw, corrected, candidates }, ...prev].slice(0, 50);
-      });
+      handleResult({ raw, corrected, candidates, input: 'upload' });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Upload failed');
       setMode('upload');
     }
-  }, []);
-
-  const reset = useCallback(() => {
-    disconnectWS();
-    setShowPopup(false);
-    setError(null);
-    setMode('idle');
-  }, [disconnectWS]);
-
-  useEffect(() => () => { wsRef.current?.close(); }, []);
+  }, [handleResult]);
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: 'var(--bg-0)', overflow: 'hidden' }}>
@@ -344,19 +243,11 @@ export default function Dashboard({ user }: Props) {
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-            {mode === 'webcam' && wsReady && (
+            {mode === 'webcam' && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--accent)' }}>
                 <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 6px var(--accent)', animation: 'pulse-dot 1.6s ease-in-out infinite' }} />
-                BACKEND READY
+                WEBCAM MODE
               </span>
-            )}
-            {mode === 'loading' && (
-              <button onClick={() => { disconnectWS(); setMode('idle'); setError(null); }}
-                style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--fg-3)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 140ms ease' }}
-                onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-0)'; }}
-                onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)'; }}>
-                ← CANCEL
-              </button>
             )}
           </div>
         </div>
@@ -380,18 +271,15 @@ export default function Dashboard({ user }: Props) {
           <div style={{ height: '100%' }}>
             {mode === 'idle' && (
               <IdleScreen
-                onWebcam={startWebcam}
+                onWebcam={() => { setError(null); setMode('webcam'); }}
                 onUpload={() => { setError(null); setMode('upload'); }}
                 onGesture={() => router.push('/gesture')}
               />
             )}
             {mode === 'webcam' && (
               <WebcamCapture
-                wsReady={wsReady}
-                onFrame={handleFrame}
-                onStartRecording={handleStartRecording}
-                onStopRecording={handleStopRecording}
-                onBack={leaveWebcam}
+                onResult={handleResult}
+                onBack={() => { setError(null); setMode('idle'); }}
               />
             )}
             {mode === 'upload' && (
@@ -400,7 +288,6 @@ export default function Dashboard({ user }: Props) {
                 onBack={() => { setError(null); setMode('idle'); }}
               />
             )}
-            {mode === 'loading' && <LoadingScreen />}
           </div>
         </div>
       </div>
@@ -409,7 +296,7 @@ export default function Dashboard({ user }: Props) {
         result={result}
         show={showPopup}
         onClose={() => setShowPopup(false)}
-        onTryAgain={() => { setShowPopup(false); setMode('idle'); }}
+        onTryAgain={() => { setShowPopup(false); setMode('idle'); setError(null); }}
       />
     </div>
   );

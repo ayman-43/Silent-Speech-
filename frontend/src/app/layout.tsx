@@ -34,6 +34,21 @@ const instrumentSerif = Instrument_Serif({
 export const metadata: Metadata = {
   title: "SilentSpeak AI — Communication Beyond Voice",
   description: "Visual speech recognition, on the edge. No microphone. No cloud. No noise.",
+  metadataBase: new URL(
+    process.env.AUTH_URL ?? process.env.NEXTAUTH_URL ?? "http://localhost:3000"
+  ),
+  openGraph: {
+    title: "SilentSpeak AI — Communication Beyond Voice",
+    description: "Visual speech recognition, on the edge. No microphone. No cloud. No noise.",
+    type: "website",
+    siteName: "SilentSpeak AI",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SilentSpeak AI",
+    description: "Visual speech recognition, on the edge. No microphone. No cloud. No noise.",
+  },
+  robots: { index: true, follow: true },
 };
 
 import Providers from "@/components/Providers";

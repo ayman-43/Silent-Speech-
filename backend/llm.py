@@ -121,7 +121,7 @@ class LLMCorrector:
                     format=_Schema.model_json_schema(),
                     options={"think": False},
                 ),
-                timeout=60.0,
+                timeout=cfg.LLM_TIMEOUT,
             )
 
             try:
@@ -138,7 +138,7 @@ class LLMCorrector:
             return text
 
         except asyncio.TimeoutError:
-            logger.warning("LLM timed out after 60 s; falling back to raw transcript")
+            logger.warning("LLM timed out after %.0f s; falling back to raw transcript", cfg.LLM_TIMEOUT)
         except Exception:
             logger.exception("LLM correction failed; falling back to raw transcript")
 
