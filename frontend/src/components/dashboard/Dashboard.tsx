@@ -239,7 +239,7 @@ export default function Dashboard({ user }: Props) {
       } else if (t === 'error') {
         const msg2 = (msg.message as string) ?? 'Backend error';
         setErrorRef.current(msg2);
-        setModeRef.current(prev => prev === 'loading' ? 'idle' : prev);
+        setModeRef.current('idle');
       }
     };
 
@@ -278,7 +278,6 @@ export default function Dashboard({ user }: Props) {
   const handleUploadFile = useCallback(async (file: File) => {
     inputKindRef.current = 'upload';
     setError(null);
-    setMode('loading');
     const form = new FormData();
     form.append('file', file);
     try {
@@ -352,7 +351,8 @@ export default function Dashboard({ user }: Props) {
               </span>
             )}
             {mode === 'loading' && (
-              <button onClick={reset} style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--fg-3)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 140ms ease' }}
+              <button onClick={() => { disconnectWS(); setMode('idle'); setError(null); }}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '0.1em', color: 'var(--fg-3)', background: 'none', border: 'none', cursor: 'pointer', transition: 'color 140ms ease' }}
                 onMouseEnter={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-0)'; }}
                 onMouseLeave={e => { (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-3)'; }}>
                 ← CANCEL
