@@ -10,21 +10,34 @@ POST /infer           upload a video file, returns transcript
 
 WebSocket
 ---------
-WS   /ws              real-time webcam streaming (VSR / lip-reading)
-WS   /ws/gesture      real-time hand gesture recognition
+WS   /ws              real-time webcam streaming
 
-/ws/gesture protocol
---------------------
-Client → server (BINARY):  Raw JPEG bytes, one per frame.
-Client → server (TEXT):    {"type": "ping"}
+WebSocket protocol
+------------------
+The client alternates between sending JPEG frames (binary) and JSON
+control messages (text).
+
+Client → server (TEXT):
+  {"type": "start_recording"}
+  {"type": "stop_recording"}
+  {"type": "reset_history"}      — wipe LLM conversation history
+  {"type": "ping"}
+
+Client → server (BINARY):
+  Raw JPEG bytes — one message per frame.
+  Only consumed when a recording is active.
 
 Server → client (TEXT):
-  {"type": "ready"}
-  {"type": "gesture", "hands": [
-      {"name": "Peace", "confidence": 0.92, "hand_label": "Right",
-       "emoji": "PEACE", "finger_states": [false,true,true,false,false]}
-  ]}
+  {"type": "ready",             "model": "LRS3_V_WER19.1", "device": "cuda:0"}
+  {"type": "recording_started", "min_frames": 25}
+  {"type": "recording_stopped", "frame_count": 62}
+  {"type": "processing"}
+  {"type": "result",            "raw": "HELLO WORLD",
+                                "corrected": "Hello world.",
+                                "candidates": [{"text": "...", "score": -9.2}, ...]}
+  {"type": "error",             "message": "..."}
   {"type": "pong"}
+  {"type": "history_reset"}
 """
 
 import asyncio
@@ -42,24 +55,9 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, UploadFile, File, H
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-try:
-    from . import config as cfg
-    from . import vsr
-    from . import llm
-except ImportError:
-    import config as cfg  # type: ignore
-    import vsr            # type: ignore
-    import llm            # type: ignore
-
-# Gesture recogniser — lazy import (mediapipe may be in a separate env)
-import sys as _sys, pathlib as _pl
-_sys.path.insert(0, str(_pl.Path(__file__).parent.parent))
-try:
-    from gesture.recognizer import GestureRecognizer as _GestureRecognizer
-    _gesture_available = True
-except Exception as _ge:
-    _gesture_available = False
-    __import__("logging").getLogger("silent-speech").warning("Gesture module unavailable: %s", _ge)
+from . import config as cfg
+from . import vsr
+from . import llm
 
 # ── logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -334,84 +332,6 @@ async def websocket_endpoint(websocket: WebSocket):
             await send({"type": "error", "message": "Internal server error"})
         except Exception:
             pass
-
-
-# ── Gesture WebSocket ─────────────────────────────────────────────────────────
-
-@app.websocket("/ws/gesture")
-async def gesture_websocket(websocket: WebSocket):
-    """
-    Real-time hand gesture recognition endpoint.
-
-    Client sends raw JPEG frames as binary messages at any frame rate.
-    Server replies with a JSON gesture message for each frame that has hands.
-    """
-    await websocket.accept()
-
-    if not _gesture_available:
-        await websocket.send_text(json.dumps({
-            "type": "error",
-            "message": "Gesture module not installed on this server.",
-        }))
-        await websocket.close()
-        return
-
-    recognizer = _GestureRecognizer(max_hands=2,
-                                    min_detection_confidence=0.65,
-                                    min_tracking_confidence=0.50)
-
-    await websocket.send_text(json.dumps({"type": "ready"}))
-    logger.info("Gesture client connected")
-
-    try:
-        while True:
-            msg = await websocket.receive()
-
-            if msg["type"] == "websocket.disconnect":
-                break
-
-            # ── binary: one JPEG frame ────────────────────────────────────────
-            raw_bytes = msg.get("bytes")
-            if raw_bytes:
-                arr = np.frombuffer(raw_bytes, dtype=np.uint8)
-                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                if frame is None:
-                    continue
-
-                gestures, _ = recognizer.process(frame)
-                if gestures:
-                    hands_payload = [
-                        {
-                            "name":          g.name,
-                            "confidence":    round(g.confidence, 2),
-                            "hand_label":    g.hand_label,
-                            "emoji":         g.emoji,
-                            "finger_states": g.finger_states,
-                        }
-                        for g in gestures
-                    ]
-                    await websocket.send_text(json.dumps({
-                        "type":  "gesture",
-                        "hands": hands_payload,
-                    }))
-                continue
-
-            # ── text: control ─────────────────────────────────────────────────
-            raw_text = msg.get("text", "")
-            if raw_text:
-                try:
-                    cmd = json.loads(raw_text)
-                except json.JSONDecodeError:
-                    continue
-                if cmd.get("type") == "ping":
-                    await websocket.send_text(json.dumps({"type": "pong"}))
-
-    except WebSocketDisconnect:
-        logger.info("Gesture client disconnected")
-    except Exception:
-        logger.exception("Gesture WebSocket error")
-    finally:
-        recognizer.close()
 
 
 # ── entry point ───────────────────────────────────────────────────────────────

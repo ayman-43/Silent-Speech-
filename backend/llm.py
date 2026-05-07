@@ -6,16 +6,12 @@ history is isolated between clients.  The module-level ``make_corrector()``
 factory is the only public API main.py should use.
 """
 
-import asyncio
 import logging
 
 from ollama import AsyncClient
 from pydantic import BaseModel
 
-try:
-    from . import config as cfg
-except ImportError:
-    import config as cfg  # type: ignore
+from . import config as cfg
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +72,14 @@ class LLMCorrector:
             self._history = self._history[-cfg.LLM_HISTORY_MAX:]
 
         try:
-            response = await asyncio.wait_for(
-                self._client.chat(
-                    model=cfg.LLM_MODEL,
-                    messages=[
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        *self._history,
-                    ],
-                    format=_Schema.model_json_schema(),
-                    options={"think": False},
-                ),
-                timeout=60.0,
+            response = await self._client.chat(
+                model=cfg.LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    *self._history,
+                ],
+                format=_Schema.model_json_schema(),
+                options={"think": False},
             )
 
             try:
@@ -102,15 +95,12 @@ class LLMCorrector:
                 text += "."
             return text
 
-        except asyncio.TimeoutError:
-            logger.warning("LLM timed out after 60 s; falling back to raw transcript")
         except Exception:
             logger.exception("LLM correction failed; falling back to raw transcript")
-
-        fallback = (transcript or "").strip().capitalize()
-        if fallback and fallback[-1] not in ".?!":
-            fallback += "."
-        return fallback
+            fallback = transcript.strip().capitalize()
+            if fallback and fallback[-1] not in ".?!":
+                fallback += "."
+            return fallback
 
 
 def make_corrector() -> LLMCorrector:
