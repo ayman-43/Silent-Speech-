@@ -47,9 +47,10 @@ These sounds look IDENTICAL on the lips — the model cannot distinguish them:
 6. REPEATED     — Stutter in the video can produce duplicated words.
 
 ━━━ YOUR TASK ━━━
-Step 1 — Candidates are PRE-RANKED by length-normalised score, so rank 1 is
-         already the statistically best hypothesis. However ALWAYS check ranks
-         2-5 as well — the ranking can still be wrong when a word was missed.
+Step 1 — Candidates are PRE-RANKED by beam score (with a mild length penalty),
+         so rank 1 is the statistically most likely hypothesis. However ALWAYS
+         check ranks 2-5 as well — the ranking can still be wrong, especially
+         when a word was missed or a longer correct phrase was scored lower.
 Step 2 — Use CONVERSATION HISTORY (prior turns) for context.
          What topic are they discussing? What would naturally follow?
 Step 3 — Apply the minimum edits to make it correct:
@@ -97,10 +98,9 @@ class LLMCorrector:
             for i, (text, score) in enumerate(nbest)
         )
         user_msg = (
-            f"Lip-reading candidates ({len(nbest)} hypotheses, ranked by "
-            f"length-normalised score — rank 1 is most likely):\n"
+            f"Lip-reading candidates ({len(nbest)} hypotheses, ranked by beam score):\n"
             f"{candidates}\n\n"
-            f"Top-1 (length-normalised best): {nbest[0][0] if nbest else '(none)'}"
+            f"Top-1 (beam best): {nbest[0][0] if nbest else '(none)'}"
         )
 
         self._history.append({"role": "user", "content": user_msg})
@@ -118,7 +118,7 @@ class LLMCorrector:
                     format=_Schema.model_json_schema(),
                     options={"think": False},
                 ),
-                timeout=20.0,
+                timeout=60.0,
             )
 
             try:
@@ -135,13 +135,14 @@ class LLMCorrector:
             return text
 
         except asyncio.TimeoutError:
-            logger.warning("LLM timed out after 20 s; falling back to raw transcript")
+            logger.warning("LLM timed out after 60 s; falling back to raw transcript")
         except Exception:
             logger.exception("LLM correction failed; falling back to raw transcript")
-            fallback = transcript.strip().capitalize()
-            if fallback and fallback[-1] not in ".?!":
-                fallback += "."
-            return fallback
+
+        fallback = (transcript or "").strip().capitalize()
+        if fallback and fallback[-1] not in ".?!":
+            fallback += "."
+        return fallback
 
 
 def make_corrector() -> LLMCorrector:
