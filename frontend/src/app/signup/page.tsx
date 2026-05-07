@@ -1,5 +1,5 @@
-import AuthFlow from '@/components/AuthFlow';
+import { redirect } from 'next/navigation';
 
 export default function SignupPage() {
-  return <AuthFlow initialMode="signup" />;
+  redirect('/dashboard');
 }

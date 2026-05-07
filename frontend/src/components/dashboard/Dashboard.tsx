@@ -9,9 +9,6 @@ import type { HistoryEntry, ResultData } from './types';
 
 type Mode = 'idle' | 'webcam' | 'upload';
 
-interface Props {
-  user: { name: string | null; email: string | null; image: string | null };
-}
 
 const HTTP_URL = process.env.NEXT_PUBLIC_BACKEND_HTTP ?? 'http://localhost:8000';
 
@@ -159,7 +156,7 @@ function IdleScreen({ onWebcam, onUpload, onGesture }: {
 
 // ── Main Dashboard ─────────────────────────────────────────────────────────────
 
-export default function Dashboard({ user }: Props) {
+export default function Dashboard() {
   const router = useRouter();
   const [mode, setMode]             = useState<Mode>('idle');
   const [result, setResult]         = useState<ResultData | null>(null);
@@ -213,7 +210,6 @@ export default function Dashboard({ user }: Props) {
 
       {/* Sidebar */}
       <HistoryPanel
-        user={user}
         history={history}
         selectedId={selectedId}
         onSelect={entry => {

@@ -1,9 +1,7 @@
 'use client';
-import { signOut } from 'next-auth/react';
 import type { HistoryEntry } from './types';
 
 interface Props {
-  user: { name: string | null; email: string | null; image: string | null };
   history: HistoryEntry[];
   selectedId: string | null;
   onSelect: (entry: HistoryEntry) => void;
@@ -20,9 +18,7 @@ function timeAgo(ts: number) {
   return new Date(ts).toLocaleDateString();
 }
 
-export default function HistoryPanel({ user, history, selectedId, onSelect, onClear }: Props) {
-  const initial = (user.name ?? user.email ?? '?')[0].toUpperCase();
-
+export default function HistoryPanel({ history, selectedId, onSelect, onClear }: Props) {
   return (
     <div style={{
       width: 272, flexShrink: 0,
@@ -31,79 +27,20 @@ export default function HistoryPanel({ user, history, selectedId, onSelect, onCl
       display: 'flex', flexDirection: 'column',
       height: '100vh', overflow: 'hidden',
     }}>
-      {/* User card */}
+      {/* Header */}
       <div style={{ padding: '20px 16px', borderBottom: '1px solid var(--fg-4)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-          {user.image ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={user.image}
-              alt={user.name ?? ''}
-              referrerPolicy="no-referrer"
-              style={{ width: 34, height: 34, borderRadius: '50%', border: '1px solid var(--fg-4)', flexShrink: 0 }}
-            />
-          ) : (
-            <div style={{
-              width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-              background: 'var(--accent-soft)', border: '1px solid rgba(184,216,248,0.2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 600, color: 'var(--accent)',
-            }}>
-              {initial}
-            </div>
-          )}
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 500,
-              letterSpacing: '-0.01em', color: 'var(--fg-0)',
-              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-              {user.name ?? 'User'}
-            </div>
-            <div style={{
-              fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--fg-3)',
-              letterSpacing: '0.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-            }}>
-              {user.email}
-            </div>
-          </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <span style={{
+            width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
+            boxShadow: '0 0 8px var(--accent)', flexShrink: 0,
+            animation: 'pulse-dot 2s ease-in-out infinite',
+          }} />
+          <span style={{ fontFamily: 'var(--font-display)', fontSize: 14, fontWeight: 500, letterSpacing: '-0.01em', color: 'var(--fg-0)' }}>
+            SilentSpeak <span style={{ color: 'var(--fg-3)', fontWeight: 400 }}>AI</span>
+          </span>
         </div>
-
-        <div style={{ display: 'flex', gap: 6 }}>
-          <div style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 6,
-            padding: '6px 10px',
-            background: 'rgba(184,216,248,0.05)', border: '1px solid rgba(184,216,248,0.1)',
-            borderRadius: 4,
-          }}>
-            <span style={{
-              width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)',
-              boxShadow: '0 0 6px var(--accent)', flexShrink: 0,
-              animation: 'pulse-dot 2s ease-in-out infinite',
-            }} />
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.12em', color: 'var(--accent)' }}>
-              ACTIVE
-            </span>
-          </div>
-          <button
-            onClick={() => signOut({ callbackUrl: '/' })}
-            style={{
-              padding: '6px 10px', background: 'rgba(255,255,255,0.03)',
-              border: '1px solid var(--fg-4)', borderRadius: 4, cursor: 'pointer',
-              fontFamily: 'var(--font-mono)', fontSize: 9, letterSpacing: '0.1em', color: 'var(--fg-2)',
-              transition: 'color 160ms ease, border-color 160ms ease',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-0)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--fg-2)';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--fg-2)';
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--fg-4)';
-            }}
-          >
-            SIGN OUT
-          </button>
+        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 9, color: 'var(--fg-4)', letterSpacing: '0.12em', paddingLeft: 16 }}>
+          VISUAL SPEECH RECOGNITION
         </div>
       </div>
 
