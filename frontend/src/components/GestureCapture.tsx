@@ -315,7 +315,7 @@ export default function GestureCapture() {
       </div>
 
       {/* Back link */}
-      <a href="/" style={{
+      <a href="/dashboard" style={{
         fontFamily: 'var(--font-mono)', fontSize: 11, letterSpacing: '0.1em',
         color: 'var(--fg-3)', textDecoration: 'none', padding: '8px 20px',
         border: '1px solid var(--fg-4)', borderRadius: 99,
@@ -324,7 +324,7 @@ export default function GestureCapture() {
         onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--fg-0)'; (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--fg-2)'; }}
         onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--fg-3)'; (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--fg-4)'; }}
       >
-        ← Back to home
+        ← Back to dashboard
       </a>
 
       <style>{`
