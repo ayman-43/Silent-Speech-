@@ -66,12 +66,18 @@ class VSREngine:
     ``infer()`` is blocking — run it in a thread-pool executor.
     """
 
+    # Unsharp-mask kernel — sharpens the lip region without amplifying noise
+    _SHARPEN_K = np.array([[-0.5, -1, -0.5],
+                            [-1,   7, -1  ],
+                            [-0.5, -1, -0.5]], dtype=np.float32) / 2.0
+
     def __init__(self):
         self.pipeline    = None
         self.loaded      = False
         self.device      = None
         self.model_name  = os.path.splitext(os.path.basename(cfg.CONFIG_PATH))[0]
-        self._clahe      = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        # Higher clipLimit (3.5) handles the lower contrast typical of webcam footage
+        self._clahe      = cv2.createCLAHE(clipLimit=3.5, tileGridSize=(8, 8))
         self._abs_config = None   # temp file path
 
     # ── initialisation ────────────────────────────────────────────────────────
@@ -115,16 +121,31 @@ class VSREngine:
 
     def preprocess_frame(self, raw_jpeg: bytes) -> np.ndarray | None:
         """
-        Decode a JPEG byte string → BGR ndarray with CLAHE applied.
-        Returns None if the image cannot be decoded.
+        Decode a JPEG → enhance contrast with CLAHE → sharpen → return BGR.
+
+        The pipeline:
+          1. CLAHE: corrects the lower contrast typical of webcam footage so
+             MediaPipe landmark detection is more reliable on dim/uneven lighting.
+          2. Unsharp mask: sharpens lip edges so the model's convolutional front-end
+             extracts cleaner visual features.
+        Returns None if the image cannot be decoded or is too blurry to be useful.
         """
         arr   = np.frombuffer(raw_jpeg, np.uint8)
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if frame is None:
             return None
+
         gray     = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        enhanced = self._clahe.apply(gray)
-        return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
+
+        # Skip frames that are nearly blank (lens cap / very dark) — variance < 5
+        if gray.var() < 5.0:
+            return None
+
+        enhanced  = self._clahe.apply(gray)
+        sharpened = cv2.filter2D(enhanced, -1, self._SHARPEN_K)
+        sharpened = np.clip(sharpened, 0, 255).astype(np.uint8)
+
+        return cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
 
     # ── inference ─────────────────────────────────────────────────────────────
 

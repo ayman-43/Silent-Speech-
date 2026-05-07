@@ -16,22 +16,52 @@ import config as cfg
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = (
-    "You are correcting output from a lip-reading AI. "
-    "You receive the top-5 beam search candidates ranked by score (less negative = more likely). "
-    "The top-ranked candidate is often WRONG — the real utterance may be in a lower-ranked candidate or a blend of several. "
-    "Pick the most contextually plausible interpretation from the candidates, then fix it.\n\n"
-    "Error patterns to fix:\n"
-    "1. PHONEME CONFUSIONS: b/p/m look identical on lips, as do f/v, th/s/z, w/r/l. "
-    "Swap these when a word looks wrong.\n"
-    "2. OUT-OF-VOCABULARY WORDS: rare words get replaced by visually similar common words. "
-    "Use context to restore the intended word.\n"
-    "3. CLIPPED START: the first syllable is often missing. If a candidate looks like the tail "
-    "of a phrase, reconstruct it from conversation history.\n\n"
-    "Rules: stay close to what was actually said — do not invent words. "
-    "Correct capitalisation. End with '.', '?', or '!'. "
-    "Return 'list_of_changes' (brief) and 'corrected_text'."
-)
+_SYSTEM_PROMPT = """\
+You are a post-processor for a visual speech recognition (lip-reading) system.
+The model watches silent video of a person speaking and outputs beam-search hypotheses.
+Your job is to recover the most plausible thing the person actually said.
+
+━━━ VISUALLY CONFUSABLE PHONEME GROUPS ━━━
+These sounds look IDENTICAL on the lips — the model cannot distinguish them:
+  • B  P  M       (bilabials — lips pressed together)
+  • F  V           (labiodentals — upper teeth on lower lip)
+  • TH  S  Z       (dentals/sibilants — tongue near teeth)
+  • D  T  N  L     (alveolars — tongue tip behind upper teeth)
+  • W  R           (rounding lips)
+  • SH  CH  ZH     (palato-alveolars)
+  • K  G  NG       (velars — back of mouth, barely visible)
+  • silent H        (almost no lip movement — often dropped entirely)
+
+━━━ COMMON LIP-READING ERROR PATTERNS ━━━
+1. RANK ERROR   — The best-scoring candidate is often WRONG. Candidates rank 2-5
+                  frequently contain the actual utterance. Evaluate ALL candidates.
+2. WORD SWAP    — A real word is replaced by a visually similar one:
+                  "very" → "ferry", "back" → "pack", "more" → "bore",
+                  "they" → "day", "that" → "dat", "what" → "wat",
+                  "people" → "peeble", "never" → "lever"
+3. CLIPPED      — First 1-2 phonemes missing: "about" appears as "bout",
+                  "because" as "cause", "I think" as "think"
+4. MERGED WORDS — Word boundary lost: "going to" → "gonna" (or vice versa)
+5. SHORT WORDS  — Articles (a, the), pronouns (I, we), prepositions often dropped
+                  or wrong: look for missing function words in context.
+6. REPEATED     — Stutter in the video can produce duplicated words.
+
+━━━ YOUR TASK ━━━
+Step 1 — Evaluate ALL candidates (not just rank 1).
+         Which one, possibly with small fixes from the confusion table above,
+         forms a grammatically correct, naturally spoken English phrase?
+Step 2 — Use CONVERSATION HISTORY (prior turns) for context.
+         What topic are they discussing? What would naturally follow?
+Step 3 — Apply the minimum edits to make it correct:
+         • Fix visually confusable phonemes if the resulting word makes more sense
+         • Restore missing function words at the start
+         • Fix capitalisation; add terminal punctuation (. ? !)
+Step 4 — Do NOT invent words that no candidate contains.
+         If all candidates look like garbage, pick the best one and clean it up.
+
+Return 'list_of_changes' (concise, e.g. "rank2 used; 'peeble'→'people'; added 'I'")
+and 'corrected_text' (the final clean sentence).\
+"""
 
 
 class _Schema(BaseModel):
@@ -63,10 +93,14 @@ class LLMCorrector:
         Falls back to a capitalised version of *transcript* on any failure.
         """
         candidates = "\n".join(
-            f"  Rank {i+1} (score {score:.1f}): {text}"
+            f"  Rank {i+1} (score {score:.2f}): {text if text else '(empty)'}"
             for i, (text, score) in enumerate(nbest)
         )
-        user_msg = f"Beam search candidates (best score first):\n{candidates}"
+        user_msg = (
+            f"Lip-reading candidates ({len(nbest)} hypotheses, best score first):\n"
+            f"{candidates}\n\n"
+            f"Top-1 raw text: {nbest[0][0] if nbest else '(none)'}"
+        )
 
         self._history.append({"role": "user", "content": user_msg})
         if len(self._history) > cfg.LLM_HISTORY_MAX:

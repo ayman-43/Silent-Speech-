@@ -19,7 +19,7 @@ MIN_FRAMES   = TARGET_FPS  # 1 second minimum
 
 # ── LLM ───────────────────────────────────────────────────────────────────────
 LLM_MODEL        = os.environ.get("LLM_MODEL", "qwen3:4b")
-LLM_HISTORY_MAX  = 8
+LLM_HISTORY_MAX  = 16   # keep 8 full exchange pairs for multi-turn context
 
 # ── Server ────────────────────────────────────────────────────────────────────
 HOST  = os.environ.get("HOST", "0.0.0.0")

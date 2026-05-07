@@ -11,17 +11,27 @@ import numpy as np
 class LandmarksDetector:
     def __init__(self):
         self.mp_face_detection = mp.solutions.face_detection
-        self.short_range_detector = self.mp_face_detection.FaceDetection(min_detection_confidence=0.5, model_selection=0)
-        self.full_range_detector = self.mp_face_detection.FaceDetection(min_detection_confidence=0.5, model_selection=1)
+        # model_selection=0: short-range (≤2 m) — best for webcam
+        # model_selection=1: full-range (≤5 m) — fallback
+        self.short_range_detector = self.mp_face_detection.FaceDetection(min_detection_confidence=0.3, model_selection=0)
+        self.full_range_detector  = self.mp_face_detection.FaceDetection(min_detection_confidence=0.3, model_selection=1)
 
     def __call__(self, filename):
         container = av.open(filename)
         video_frames = np.array([f.to_ndarray(format='rgb24') for f in container.decode(video=0)])
         container.close()
+
+        # Try short-range first (webcam typical distance); fall back to full-range
         landmarks = self.detect(video_frames, self.short_range_detector)
-        if all(element is None for element in landmarks):
-            landmarks = self.detect(video_frames, self.full_range_detector)
-            assert any(l is not None for l in landmarks), "Cannot detect any frames in the video"
+        detected = sum(1 for l in landmarks if l is not None)
+        if detected < len(video_frames) * 0.5:
+            # Fewer than half the frames detected — retry with full-range model
+            landmarks_fr = self.detect(video_frames, self.full_range_detector)
+            detected_fr = sum(1 for l in landmarks_fr if l is not None)
+            if detected_fr > detected:
+                landmarks = landmarks_fr
+
+        assert any(l is not None for l in landmarks), "Cannot detect any frames in the video"
         return landmarks
 
     def detect(self, video_frames, detector):

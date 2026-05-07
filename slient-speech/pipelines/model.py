@@ -72,7 +72,7 @@ class AVSR(torch.nn.Module):
         self.beam_search = get_beam_search_decoder(self.model, self.token_list, rnnlm, rnnlm_conf, penalty, ctc_weight, lm_weight, beam_size)
         self.beam_search.to(device=self.device).eval()
         
-    def infer(self, data, nbest_count=5):
+    def infer(self, data, nbest_count=10):
         with torch.no_grad():
             if isinstance(data, tuple):
                 enc_feats = self.model.encode(data[0].to(self.device), data[1].to(self.device))
