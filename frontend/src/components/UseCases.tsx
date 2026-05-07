@@ -130,7 +130,7 @@ function MicroViz({ type, color }: { type: string; color: string }) {
         </div>
       )}
       {type === 'pulse' && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyCenter: 'center', height: '100%', width: '100%', position: 'relative' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', width: '100%', position: 'relative' }}>
           <div style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: '8px', height: '8px', background: color, borderRadius: '50%' }} />
           <div className="pulse-ring" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: '20px', height: '20px', border: `1px solid ${color}`, borderRadius: '50%' }} />
           <div className="pulse-ring" style={{ position: 'absolute', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: '20px', height: '20px', border: `1px solid ${color}`, borderRadius: '50%' }} />
@@ -162,7 +162,7 @@ function MicroViz({ type, color }: { type: string; color: string }) {
 export default function UseCases() {
   const sectionRef = useRef<HTMLElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
-  const cardsRef = useRef<(HTMLDivElement | null)[]>([]);
+  const cardsRef = useRef<(HTMLElement | null)[]>([]);
 
   useEffect(() => {
     const ctx = gsap.context(() => {
