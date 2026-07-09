@@ -26,6 +26,3 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Set **Root Directory** to `frontend/` in your Vercel project settings, then deploy. No additional environment variables required.
 
-## Author
-
-**Sanskaar**

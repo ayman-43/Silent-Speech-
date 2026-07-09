@@ -1,6 +1,6 @@
 # Extra packages needed on top of the slient-speech venv.
 # Install with:  uv pip install -r requirements.txt
-# (run from HACKHIVE2k26/slient-speech so uv finds the right venv)
+# (run from the slient-speech directory so uv finds the right venv)
 
 fastapi>=0.111.0
 uvicorn[standard]>=0.29.0

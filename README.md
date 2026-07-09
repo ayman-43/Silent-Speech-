@@ -2,7 +2,7 @@
 
 > Real-time visual speech recognition — lip-read from your webcam and type what you silently mouth. Fully local, no internet required.
 
-Built for **HACKHIVE 2k26**.
+
 
 ---
 
@@ -160,6 +160,3 @@ The existing MediaPipe pipeline already mirrors auto-AVSR's preprocessing: face 
 
 ---
 
-## Author
-
-**Sanskaar** — HACKHIVE 2k26
